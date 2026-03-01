@@ -3,7 +3,23 @@ name = "subagent-cli"
 version = "0.1.1"
 description = "Protocol-agnostic worker orchestration CLI"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "niitsuma-t" }]
+keywords = ["cli", "agent", "orchestration", "acp", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
 dependencies = [
     "typer>=0.24.1",
 ]
@@ -22,4 +38,7 @@ packages = ["src/subagent"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+]
+release = [
+    "twine>=6.2.0",
 ]

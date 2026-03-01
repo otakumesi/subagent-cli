@@ -2,6 +2,12 @@
 
 Initial v1 implementation scaffold based on `DEV_PLAN.md` and `SOFTWARE_DESIGN.md`.
 
+## Install
+- From PyPI (after publish):
+`pip install subagent-cli`
+- Local wheel install:
+`pip install dist/subagent_cli-*.whl`
+
 ## Implemented commands
 - `subagent launcher list/show`
 - `subagent launcher probe`
@@ -29,6 +35,18 @@ Initial v1 implementation scaffold based on `DEV_PLAN.md` and `SOFTWARE_DESIGN.m
 ## Tests
 - Run with:
 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`
+
+## Release (PyPI)
+1. Build artifacts:
+`uv build`
+2. Validate package metadata:
+`uv run --group release python -m twine check dist/*`
+3. Upload to PyPI:
+`uv run --group release python -m twine upload dist/*`
+
+Notes:
+- Requires Python 3.11+.
+- Keep your PyPI credentials/token in local config (for example `.pypirc`, which is gitignored).
 
 ## Input Contract
 - Major commands support `--input <json-file|->`

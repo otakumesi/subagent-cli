@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .acp_client import AcpStdioClient
 from .approval_utils import resolve_option
 from .errors import SubagentError
@@ -146,7 +147,7 @@ class WorkerRuntime:
                 "initialize",
                 {
                     "protocolVersion": 1,
-                    "clientInfo": {"name": "subagent-cli", "version": "0.1.1"},
+                    "clientInfo": {"name": "subagent-cli", "version": __version__},
                     "clientCapabilities": {
                         "fs": {"readTextFile": False, "writeTextFile": False},
                         "terminal": False,
