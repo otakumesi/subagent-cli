@@ -15,14 +15,24 @@ Thanks for contributing to `subagent-cli`.
 - Confirm all tests pass locally.
 
 ## Release (Maintainers)
+### Trusted Publishing (recommended)
 1. Ensure version is updated (`pyproject.toml`, and package version if needed).
-2. Build artifacts:
+2. Push the release commit and tag (for example `v0.1.1`).
+3. Create a GitHub Release from that tag.
+4. The workflow `.github/workflows/publish-pypi.yml` builds and publishes to PyPI via OIDC.
+
+PyPI trusted publisher settings should match:
+- Owner: `otakumesi`
+- Repository: `subagent-cli`
+- Workflow: `publish-pypi.yml`
+- Environment: `pypi`
+
+### Manual token-based publish (fallback)
+1. Build artifacts:
 `uv build`
-3. Validate package metadata:
+2. Validate package metadata:
 `uv run --group release python -m twine check dist/*`
-4. Upload to TestPyPI (recommended first):
-`uv run --group release python -m twine upload --repository testpypi dist/*`
-5. Upload to PyPI:
+3. Upload to PyPI:
 `uv run --group release python -m twine upload dist/*`
 
 Notes:
