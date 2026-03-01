@@ -1,6 +1,8 @@
 # subagent-cli
 
 `subagent-cli` is a protocol-agnostic CLI for orchestrating worker agents from a parent controller.
+In practice, it is a control-plane CLI that a manager agent (for example Codex or Claude Code) can use to launch and coordinate other worker agents.
+The CLI surface is protocol-agnostic, while the current runtime implementation is ACP-based (`acp-stdio`).
 
 ## Status
 - Alpha (`v0.1.x`)
