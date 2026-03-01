@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+
+# Virtual environments
+.venv
+
+# Local runtime artifacts
+.subagent/
+subagentd-status.json
+*.pid
+
+# Local AI agent work logs (not tracked)
+.agent-logs/
+.ai-worklog/
+worklog.local.md

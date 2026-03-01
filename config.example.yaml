@@ -1,0 +1,52 @@
+launchers:
+  codex:
+    backend:
+      kind: acp-stdio
+    command: codex-acp
+    args: []
+    env: {}
+
+  claude-code:
+    backend:
+      kind: acp-stdio
+    command: claude-code-acp
+    args: []
+    env: {}
+
+profiles:
+  worker-default:
+    promptLanguage: en
+    responseLanguage: same_as_manager
+    autoHandoff: turn_end
+    policyPreset: safe-default
+    defaultPacks:
+      - repo-conventions
+    bootstrap: |
+      You are a worker subagent.
+      Use STATUS:, ASK:, BLOCKED:, and DONE: prefixes when helpful.
+      Keep messages concise and actionable.
+
+packs:
+  repo-conventions:
+    description: Follow repository coding conventions and keep diffs small.
+    prompt: |
+      Read existing conventions before editing.
+      Prefer minimal, explicit changes.
+
+  python-test-fix:
+    description: Fix flaky Python tests with minimal change scope.
+    prompt: |
+      Reproduce failing tests first.
+      Add regression coverage where practical.
+
+policyPresets:
+  safe-default:
+    filesystem: workspace-write
+    network: ask
+    dangerousCommands: deny
+
+defaults:
+  launcher: codex
+  profile: worker-default
+  packs:
+    - repo-conventions
