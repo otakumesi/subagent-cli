@@ -36,17 +36,8 @@ Initial v1 implementation scaffold based on `DEV_PLAN.md` and `SOFTWARE_DESIGN.m
 - Run with:
 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`
 
-## Release (PyPI)
-1. Build artifacts:
-`uv build`
-2. Validate package metadata:
-`uv run --group release python -m twine check dist/*`
-3. Upload to PyPI:
-`uv run --group release python -m twine upload dist/*`
-
-Notes:
-- Requires Python 3.11+.
-- Keep your PyPI credentials/token in local config (for example `.pypirc`, which is gitignored).
+## Contributing
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release guidance.
 
 ## Input Contract
 - Major commands support `--input <json-file|->`
