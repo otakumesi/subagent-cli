@@ -19,6 +19,7 @@ subagentd-status.json
 .agent-logs/
 .ai-worklog/
 worklog.local.md
+.internal/
 
 # Packaging / publishing local files
 .pypirc

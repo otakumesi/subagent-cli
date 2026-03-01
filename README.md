@@ -1,6 +1,6 @@
 # subagent-cli
 
-Initial v1 implementation scaffold based on `DEV_PLAN.md` and `SOFTWARE_DESIGN.md`.
+Initial v1 implementation scaffold.
 
 ## Install
 - From PyPI (after publish):
