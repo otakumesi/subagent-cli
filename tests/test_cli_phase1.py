@@ -89,6 +89,11 @@ class CLIPhase1Tests(unittest.TestCase):
         self.assertEqual(pack_payload["type"], "pack.listed")
         self.assertEqual(pack_payload["data"]["count"], 1)
 
+    def test_root_help_mentions_manager_prompt_bootstrap(self) -> None:
+        result = self.invoke(["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("prompt render --target manager", result.stdout)
+
     def test_controller_init_and_status_with_valid_env_handle(self) -> None:
         init_result = self.invoke(
             ["controller", "init", "--cwd", str(self.workspace), "--json"]

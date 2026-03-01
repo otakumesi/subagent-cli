@@ -37,7 +37,12 @@ from .state import StateStore
 from .turn_service import approve_request, cancel_turn, send_message, wait_for_event, watch_events
 from .worker_service import inspect_worker, list_workers, show_worker, start_worker, stop_worker
 
-app = typer.Typer(help="subagent: protocol-agnostic worker orchestration CLI")
+app = typer.Typer(
+    help=(
+        "subagent: protocol-agnostic worker orchestration CLI\n"
+        "If you are a manager agent, start with: `subagent prompt render --target manager`"
+    )
+)
 launcher_app = typer.Typer(help="Manage launcher registry from config")
 profile_app = typer.Typer(help="Manage profile registry from config")
 pack_app = typer.Typer(help="Manage pack registry from config")

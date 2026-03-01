@@ -90,6 +90,9 @@ class PolishPhase5Tests(unittest.TestCase):
         manager_payload = json.loads(manager.stdout)
         self.assertEqual(manager_payload["type"], "prompt.rendered")
         self.assertEqual(manager_payload["data"]["target"], "manager")
+        manager_prompt = str(manager_payload["data"]["prompt"])
+        self.assertIn("Read this quick workflow first", manager_prompt)
+        self.assertIn("subagent controller init", manager_prompt)
 
         worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
         self.assertEqual(worker.exit_code, 0)
