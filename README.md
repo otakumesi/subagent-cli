@@ -1,5 +1,7 @@
 # subagent-cli
 
+Language: **English** | [日本語](README.ja.md)
+
 [![PyPI version](https://img.shields.io/pypi/v/subagent-cli)](https://pypi.org/project/subagent-cli/)
 [![Python versions](https://img.shields.io/pypi/pyversions/subagent-cli)](https://pypi.org/project/subagent-cli/)
 [![License](https://img.shields.io/github/license/otakumesi/subagent-cli)](LICENSE)
