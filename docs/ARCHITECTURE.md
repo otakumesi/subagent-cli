@@ -1,19 +1,23 @@
 # subagent v1 Architecture Memo
 
 ## Layers
-- CLI surface: `subagent` Typer commands for controller/config operations.
-- Local control plane: `subagentd` minimal bootstrap/status process.
-- Runtime state: sqlite-backed `StateStore` for controller ownership.
-- Config registry: loader for `launchers` / `profiles` / `packs` from config.
+- CLI surface: `subagent` Typer commands for config/registry, controller ownership, worker lifecycle, and turn operations.
+- Local control plane: `subagentd` process for bootstrap/status, heartbeat, worker runtime health checks, and auto-restart attempts.
+- Runtime state: sqlite-backed `StateStore` for controllers, controller instances, workers, event journal, approval requests, and handoff snapshots.
+- Runtime adapter: per-worker ACP runtime process (`subagent.worker_runtime`) with unix-socket IPC (`runtime_service`).
+- Config registry: loader for `launchers` / `profiles` / `packs` / `defaults` from config.
 
 ## Current v1 Scope (Implemented)
+- `config`: `init` (user/project config template generation)
 - `launcher/profile/pack`: `list`, `show`
 - `launcher`: `probe`
 - `prompt`: `render` (manager/worker)
 - `controller`: `init`, `attach`, `status`, `recover`, `release`
 - `worker`: `start`, `list`, `show`, `inspect`, `stop`, `handoff`, `continue`
 - turn operations: `send`, `watch`, `wait`, `approve`, `cancel`
+- `subagentd`: `run`, `status`
 - normalized event journal and approval queue
+- default `config init` template includes ACP launchers for `codex`, `claude-code`, `gemini`, `opencode`
 - persistent `acp-stdio` worker runtime:
   - `worker start` launches runtime (`initialize` -> `session/new`)
   - restart path attempts `session/load` using stored `sessionId`, then falls back to `session/new`
@@ -30,7 +34,7 @@
 - versioned envelope for JSON responses
 
 ## Current Limitations
-- local single-host control plane only (`subagentd` is minimal bootstrap/status)
+- local single-host control plane only (no multi-host orchestration/scheduling)
 - no queued turn execution; `send` is rejected while worker is busy
-- resume strategy is handoff-first (no bit-perfect backend session resurrection)
+- session resume is best-effort (`session/load` fallback to `session/new`, no guaranteed bit-perfect resurrection)
 - commands that need implicit state path fail with `WORKSPACE_ROOT_NOT_FOUND` when workspace root cannot be inferred
