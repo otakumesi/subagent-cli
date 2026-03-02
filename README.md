@@ -53,17 +53,13 @@ subagent config init --scope user
 
 2. Set launcher command/args/env in `~/.config/subagent/config.yaml`.
 
-3. Initialize a controller in your workspace.
+3. Initialize a controller in your workspace (run once per workspace, by you or your manager agent).
 ```bash
 subagent controller init --cwd .
 ```
 
-4. Render manager guidance.
-```bash
-subagent prompt render --target manager
-```
-
-5. Hand off from here to your manager agent (Codex / Claude Code).  
+4. Hand off from here to your manager agent (Codex / Claude Code).  
+Ask the manager agent to run `subagent prompt render --target manager` as its first step.  
 Use this instruction template:
 
 ```text
@@ -71,7 +67,7 @@ Act as the project manager for this repository.
 Use subagent-cli as the control plane and progress this task by delegating to worker agents.
 
 Required workflow:
-1) Read and follow the output of `subagent prompt render --target manager`.
+1) First, run `subagent prompt render --target manager` and follow that output.
 2) Check command help before execution (for example `subagent worker --help`, `subagent send --help`, `subagent approve --help`).
 3) Break the task into small executable chunks.
 4) Start/coordinate workers with subagent-cli.
