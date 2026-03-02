@@ -1,14 +1,14 @@
 {
   "schemaVersion": "v1",
-  "sourceWorkerId": "w_123",
-  "createdAt": "2026-03-01T22:10:00Z",
-  "summary": {
-    "task": "Investigate flaky payments retry test",
-    "state": "idle",
-    "lastCompletedTurnId": "turn_07"
-  },
-  "artifacts": {
-    "handoff": "handoff.md",
-    "eventsPath": "events/w_123.ndjson"
-  }
+  "workerId": "w_123",
+  "controllerId": "ctl_abc123",
+  "launcher": "codex",
+  "profile": "worker-default",
+  "packs": ["repo-conventions"],
+  "cwd": "/path/to/workspace",
+  "state": "handoff_ready",
+  "sourceTurnId": "turn_07",
+  "handoffPath": "/path/to/workspace/.subagent/state/handoffs/w_123/hs_abc123/handoff.md",
+  "artifacts": ["/path/to/workspace/.subagent/state/handoffs/w_123/hs_abc123/handoff.md"],
+  "filesChanged": []
 }
