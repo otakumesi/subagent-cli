@@ -8,6 +8,7 @@ from typing import Any
 
 from .approval_utils import resolve_option
 from .config import SubagentConfig
+from .constants import RUNTIME_STARTUP_TIMEOUT_SECONDS
 from .errors import SubagentError
 from .runtime_service import restart_worker_runtime, runtime_request
 from .state import (
@@ -286,7 +287,12 @@ def _runtime_request_with_restart(
     except SubagentError as error:
         if error.code != "BACKEND_UNAVAILABLE" or config is None:
             raise
-    restart_worker_runtime(store, config, worker_id=worker_id, timeout_seconds=10.0)
+    restart_worker_runtime(
+        store,
+        config,
+        worker_id=worker_id,
+        timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
+    )
     return runtime_request(
         store,
         worker_id=worker_id,

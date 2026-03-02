@@ -13,6 +13,7 @@ from typing import Any
 from . import __version__
 from .acp_client import AcpStdioClient
 from .approval_utils import resolve_option
+from .constants import RUNTIME_STARTUP_TIMEOUT_SECONDS
 from .errors import SubagentError
 from .state import (
     WORKER_STATE_IDLE,
@@ -153,7 +154,7 @@ class WorkerRuntime:
                         "terminal": False,
                     },
                 },
-                timeout_seconds=10.0,
+                timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
             )
             existing_session_id = worker.get("session_id")
             resumed_session = False
@@ -162,13 +163,13 @@ class WorkerRuntime:
                     session_payload = self.client.request(
                         "session/load",
                         {"sessionId": existing_session_id},
-                        timeout_seconds=15.0,
+                        timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
                     )
                 except SubagentError:
                     session_payload = self.client.request(
                         "session/new",
                         {"cwd": str(self.cwd), "mcpServers": []},
-                        timeout_seconds=15.0,
+                        timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
                     )
                 else:
                     resumed_session = True
@@ -176,7 +177,7 @@ class WorkerRuntime:
                 session_payload = self.client.request(
                     "session/new",
                     {"cwd": str(self.cwd), "mcpServers": []},
-                    timeout_seconds=15.0,
+                    timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
                 )
             self.session_id = _extract_session_id(session_payload)
             self.store.set_worker_session_id(self.worker_id, self.session_id)

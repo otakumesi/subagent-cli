@@ -24,6 +24,7 @@ Read this quick workflow first:
 Operational rules:
 - Keep instructions short, concrete, and outcome-oriented.
 - Use `--json` for machine-readable responses and `--input` for JSON-driven calls.
+- Ensure the runtime has required permissions for the chosen launcher (including network access when needed).
 - Treat `waiting_approval` as a blocking state; resolve via `approve` or `cancel`.
 - Use handoff flow for continuation: `worker handoff` -> `worker continue`.
 - Prefer strict mode for production; use `--debug-mode` only for local simulation/testing.

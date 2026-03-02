@@ -19,3 +19,6 @@ DEFAULT_HANDOFFS_DIR = DEFAULT_STATE_DIR / "handoffs"
 
 PROJECT_HINT_DIRNAME = ".subagent"
 PROJECT_HINT_FILENAME = "controller.json"
+
+# Allow slower first-launch paths (e.g., launcher bootstrap) before declaring startup failure.
+RUNTIME_STARTUP_TIMEOUT_SECONDS = 60.0

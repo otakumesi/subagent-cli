@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Launcher, SubagentConfig
+from .constants import RUNTIME_STARTUP_TIMEOUT_SECONDS
 from .errors import SubagentError
 from .state import StateStore
 
@@ -177,7 +178,7 @@ def launch_worker_runtime(
     worker_id: str,
     launcher: Launcher,
     cwd: str,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = RUNTIME_STARTUP_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     socket_path = runtime_socket_path(store, worker_id)
     if socket_path.exists():
@@ -259,7 +260,7 @@ def restart_worker_runtime(
     config: SubagentConfig,
     *,
     worker_id: str,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = RUNTIME_STARTUP_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     worker = store.get_worker(worker_id)
     if worker is None:

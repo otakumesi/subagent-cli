@@ -864,7 +864,14 @@ def cancel(
         typer.echo(f"state: {payload['state']}")
 
 
-@worker_app.command("start")
+@worker_app.command(
+    "start",
+    help=(
+        "Start a worker runtime. "
+        "Tip: run `subagent launcher probe <launcher-name> --json` first and ensure "
+        "launcher-required permissions (including network access) are available."
+    ),
+)
 def worker_start(
     ctx: typer.Context,
     launcher: str | None = typer.Option(None, "--launcher", help="Launcher name"),

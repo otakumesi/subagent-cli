@@ -37,6 +37,15 @@ The CLI surface is protocol-agnostic, while the current runtime implementation i
 For local simulation/testing without a real ACP launcher:
 `subagent worker start --cwd . --debug-mode`
 
+## Troubleshooting
+- Ensure the runtime has the permissions required by your launcher. Some launchers need outbound network access.
+- Preflight launcher availability:
+`subagent launcher probe <launcher-name> --json`
+- If `worker start` fails with `BACKEND_UNAVAILABLE`, inspect runtime logs under:
+`~/.local/share/subagent/runtimes/` (or `$SUBAGENT_STATE_DIR/runtimes/` when overridden)
+- For local cut-down testing without backend connectivity, use:
+`subagent worker start --cwd . --debug-mode`
+
 ## Configuration
 - Default config path: `~/.config/subagent/config.yaml`
 - Override config path: `SUBAGENT_CONFIG=/path/to/config.yaml`
