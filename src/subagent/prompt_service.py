@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from .config import Pack, Profile, SubagentConfig
+from .constants import DEFAULT_WAIT_TIMEOUT_SECONDS, DEFAULT_WAIT_UNTIL
 from .errors import SubagentError
 
-MANAGER_PROMPT_BASE = """You are a manager agent coordinating worker subagents with `subagent` CLI.
+MANAGER_PROMPT_BASE = f"""You are a manager agent coordinating worker subagents with `subagent` CLI.
 
 Read this quick workflow first:
 1. Initialize controller in the workspace:
@@ -24,6 +25,8 @@ Read this quick workflow first:
 Operational rules:
 - Keep instructions short, concrete, and outcome-oriented.
 - Use `--json` for machine-readable responses and `--input` for JSON-driven calls.
+- Prefer `send --wait` for task dispatch when you need a single round-trip result.
+- Prefer `subagent wait` defaults for robust turn polling (`--until {DEFAULT_WAIT_UNTIL}`, `--timeout-seconds {DEFAULT_WAIT_TIMEOUT_SECONDS:.0f}`).
 - Ensure the runtime has required permissions for the chosen launcher (including network access when needed).
 - Treat `waiting_approval` as a blocking state; resolve via `approve` or `cancel`.
 - Use handoff flow for continuation: `worker handoff` -> `worker continue`.

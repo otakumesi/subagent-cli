@@ -8,7 +8,7 @@ from typing import Any
 
 from .approval_utils import resolve_option
 from .config import SubagentConfig
-from .constants import RUNTIME_STARTUP_TIMEOUT_SECONDS
+from .constants import DEFAULT_WAIT_TIMEOUT_SECONDS, RUNTIME_STARTUP_TIMEOUT_SECONDS
 from .errors import SubagentError
 from .runtime_service import restart_worker_runtime, runtime_request
 from .state import (
@@ -17,6 +17,26 @@ from .state import (
     WORKER_STATE_WAITING_APPROVAL,
     StateStore,
 )
+
+WAIT_EVENT_TYPES: set[str] = {
+    "turn.started",
+    "message.sent",
+    "progress.message",
+    "progress.update",
+    "approval.requested",
+    "approval.decided",
+    "turn.completed",
+    "turn.failed",
+    "turn.canceled",
+}
+WAIT_UNTIL_ALIASES: dict[str, set[str]] = {
+    "turn_end": {
+        "turn.completed",
+        "turn.failed",
+        "turn.canceled",
+        "approval.requested",
+    },
+}
 
 
 def _normalize_event(event: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
@@ -53,7 +73,33 @@ def _parse_until_set(until: str | None) -> set[str]:
     trimmed = until.strip()
     if not trimmed or trimmed in {"*", "any"}:
         return set()
-    return {part.strip() for part in trimmed.split(",") if part.strip()}
+    raw_parts = [part.strip() for part in trimmed.split(",") if part.strip()]
+    if not raw_parts:
+        return set()
+    if any(part in {"*", "any"} for part in raw_parts):
+        return set()
+    expanded: set[str] = set()
+    unknown: list[str] = []
+    for part in raw_parts:
+        alias_target = WAIT_UNTIL_ALIASES.get(part)
+        if alias_target is not None:
+            expanded.update(alias_target)
+            continue
+        if part in WAIT_EVENT_TYPES:
+            expanded.add(part)
+            continue
+        unknown.append(part)
+    if unknown:
+        raise SubagentError(
+            code="INVALID_ARGUMENT",
+            message="`until` contains unknown event type(s)",
+            details={
+                "unknown": sorted(set(unknown)),
+                "aliases": sorted(WAIT_UNTIL_ALIASES.keys()),
+                "knownEventTypes": sorted(WAIT_EVENT_TYPES),
+            },
+        )
+    return expanded
 
 
 def _begin_turn(
@@ -160,6 +206,7 @@ def _simulate_send_message(
             "state": WORKER_STATE_WAITING_APPROVAL,
             "requestId": request["request_id"],
             "eventId": approval_event["event_id"],
+            "acceptedEventId": message_event["event_id"],
         }
 
     store.append_worker_event(
@@ -384,10 +431,16 @@ def wait_for_event(
     worker_id: str,
     until: str,
     from_event_id: str | None = None,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    if timeout_seconds < 0:
+        raise SubagentError(
+            code="INVALID_ARGUMENT",
+            message="`timeoutSeconds` must be >= 0",
+            details={"timeoutSeconds": timeout_seconds},
+        )
     until_set = _parse_until_set(until)
-    deadline = time.monotonic() + timeout_seconds
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
     cursor = from_event_id
     while True:
         events = store.list_worker_events(worker_id, from_event_id=cursor)
@@ -397,9 +450,21 @@ def wait_for_event(
                 if not until_set or event_type in until_set:
                     return _normalize_event(event)
             cursor = str(events[-1]["event_id"])
-        if time.monotonic() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             break
         time.sleep(0.05)
+    worker = store.get_worker(worker_id)
+    worker_state = str(worker.get("state")) if worker is not None else "unknown"
+    latest_event_payload: dict[str, Any] | None = None
+    if worker is not None:
+        latest_event = store.get_latest_worker_event(worker_id)
+        if latest_event is not None:
+            latest_event_payload = {
+                "eventId": latest_event["event_id"],
+                "type": latest_event["event_type"],
+                "turnId": latest_event.get("turn_id"),
+                "ts": latest_event["ts"],
+            }
     raise SubagentError(
         code="WAIT_TIMEOUT",
         message=f"No event matched `{until}` before timeout",
@@ -408,8 +473,34 @@ def wait_for_event(
             "workerId": worker_id,
             "until": until,
             "timeoutSeconds": timeout_seconds,
+            "workerState": worker_state,
+            "latestEvent": latest_event_payload,
         },
     )
+
+
+def find_last_assistant_message(
+    store: StateStore,
+    *,
+    worker_id: str,
+    turn_id: str | None,
+    from_event_id: str | None = None,
+) -> str | None:
+    events = store.list_worker_events(worker_id, from_event_id=from_event_id)
+    for event in reversed(events):
+        if turn_id is not None and str(event.get("turn_id") or "") != turn_id:
+            continue
+        if str(event.get("event_type")) != "progress.message":
+            continue
+        data = event.get("data")
+        if not isinstance(data, dict):
+            continue
+        if data.get("role") != "assistant":
+            continue
+        text = data.get("text")
+        if isinstance(text, str) and text:
+            return text
+    return None
 
 
 def cancel_turn(

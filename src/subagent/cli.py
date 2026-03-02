@@ -10,7 +10,7 @@ import click
 import typer
 
 from .config import SubagentConfig, load_config
-from .constants import PROJECT_HINT_DIRNAME
+from .constants import DEFAULT_WAIT_TIMEOUT_SECONDS, DEFAULT_WAIT_UNTIL, PROJECT_HINT_DIRNAME
 from .controller_service import (
     attach_controller,
     init_controller,
@@ -35,7 +35,14 @@ from .output import emit_error_and_exit, emit_json, ok_envelope
 from .paths import resolve_config_path, resolve_state_db_path, resolve_workspace_path
 from .prompt_service import render_prompt
 from .state import StateStore
-from .turn_service import approve_request, cancel_turn, send_message, wait_for_event, watch_events
+from .turn_service import (
+    approve_request,
+    cancel_turn,
+    find_last_assistant_message,
+    send_message,
+    wait_for_event,
+    watch_events,
+)
 from .worker_service import inspect_worker, list_workers, show_worker, start_worker, stop_worker
 
 app = typer.Typer(
@@ -363,6 +370,8 @@ def launcher_probe(
         status = "available" if payload["available"] else "missing"
         typer.echo(f"{payload['name']}: {status}")
         typer.echo(f"command: {payload['command']}")
+        typer.echo(f"effectiveCommand: {payload['effectiveCommand']}")
+        typer.echo(f"effectiveArgs: {json.dumps(payload['effectiveArgs'], ensure_ascii=False)}")
         typer.echo(f"resolvedPath: {payload['resolvedCommandPath']}")
 
 
@@ -712,6 +721,22 @@ def send(
         "--request-approval",
         help="Simulate approval-required turn in local runtime",
     ),
+    wait_for_match: bool = typer.Option(
+        False,
+        "--wait/--no-wait",
+        help="Wait for a matching event before returning.",
+    ),
+    wait_until: str = typer.Option(
+        DEFAULT_WAIT_UNTIL,
+        "--wait-until",
+        help="Event type(s) for --wait (comma-separated, alias: turn_end).",
+    ),
+    wait_timeout_seconds: float = typer.Option(
+        DEFAULT_WAIT_TIMEOUT_SECONDS,
+        "--wait-timeout-seconds",
+        min=0.0,
+        help="Timeout for --wait in seconds. Set 0 for no timeout.",
+    ),
     input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
     debug_mode: bool = typer.Option(
         False,
@@ -730,18 +755,27 @@ def send(
                 "text": text,
                 "blocks_json": blocks_json,
                 "debug_mode": debug_mode,
+                "wait_for_match": wait_for_match,
+                "wait_until": wait_until,
+                "wait_timeout_seconds": wait_timeout_seconds,
             },
             value_is_default={
                 "worker_id": _is_param_default(ctx, "worker_id"),
                 "text": _is_param_default(ctx, "text"),
                 "blocks_json": _is_param_default(ctx, "blocks_json"),
                 "debug_mode": _is_param_default(ctx, "debug_mode"),
+                "wait_for_match": _is_param_default(ctx, "wait_for_match"),
+                "wait_until": _is_param_default(ctx, "wait_until"),
+                "wait_timeout_seconds": _is_param_default(ctx, "wait_timeout_seconds"),
             },
             mapping={
                 "workerId": "worker_id",
                 "text": "text",
                 "blocks": "blocks_json",
                 "debugMode": "debug_mode",
+                "wait": "wait_for_match",
+                "waitUntil": "wait_until",
+                "waitTimeoutSeconds": "wait_timeout_seconds",
             },
         )
         if input_payload is not None:
@@ -751,8 +785,26 @@ def send(
             payload_debug_mode = read_bool(input_payload, "debugMode")
             if payload_debug_mode is not None:
                 debug_mode = payload_debug_mode
+            payload_wait = read_bool(input_payload, "wait")
+            if payload_wait is not None:
+                wait_for_match = payload_wait
+            wait_until = read_string(input_payload, "waitUntil") or wait_until
+            wait_timeout_value = input_payload.get("waitTimeoutSeconds")
+            if wait_timeout_value is not None:
+                if not isinstance(wait_timeout_value, (int, float)):
+                    emit_error_and_exit(
+                        SubagentError(code="INVALID_INPUT", message="`waitTimeoutSeconds` must be a number"),
+                        json_output=json_output,
+                    )
+                wait_timeout_seconds = float(wait_timeout_value)
         else:
             blocks = None
+
+        if wait_timeout_seconds < 0:
+            emit_error_and_exit(
+                SubagentError(code="INVALID_INPUT", message="`waitTimeoutSeconds` must be >= 0"),
+                json_output=json_output,
+            )
 
         worker_id = _require_value(worker_id, name="worker", json_output=json_output)
         text = _require_value(text, name="text", json_output=json_output)
@@ -774,6 +826,48 @@ def send(
             config=config,
             execution_mode=execution_mode,
         )
+        if wait_for_match:
+            from_event_id = payload.get("acceptedEventId")
+            cursor = from_event_id if isinstance(from_event_id, str) and from_event_id else None
+            matched_event = wait_for_event(
+                store,
+                worker_id=worker_id,
+                until=wait_until,
+                from_event_id=cursor,
+                timeout_seconds=wait_timeout_seconds,
+            )
+            request_id = payload.get("requestId")
+            if not isinstance(request_id, str):
+                matched_data = matched_event.get("data")
+                if isinstance(matched_data, dict):
+                    candidate = matched_data.get("requestId")
+                    if isinstance(candidate, str):
+                        request_id = candidate
+            turn_id = payload.get("turnId")
+            waited_payload = dict(payload)
+            waited_payload["waitUntil"] = wait_until
+            waited_payload["waitTimeoutSeconds"] = wait_timeout_seconds
+            waited_payload["matchedEvent"] = matched_event
+            waited_payload["requestId"] = request_id if isinstance(request_id, str) else None
+            waited_payload["lastAssistantMessage"] = find_last_assistant_message(
+                store,
+                worker_id=worker_id,
+                turn_id=turn_id if isinstance(turn_id, str) else None,
+                from_event_id=cursor,
+            )
+            current_worker = store.get_worker(worker_id)
+            if current_worker is not None:
+                waited_payload["state"] = str(current_worker["state"])
+            if json_output:
+                emit_json(ok_envelope("turn.waited", waited_payload))
+            else:
+                typer.echo(f"workerId: {waited_payload['workerId']}")
+                typer.echo(f"turnId: {waited_payload['turnId']}")
+                typer.echo(f"state: {waited_payload['state']}")
+                typer.echo(f"matchedEvent: {matched_event['type']}")
+                if waited_payload["requestId"]:
+                    typer.echo(f"requestId: {waited_payload['requestId']}")
+            return
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
     if json_output:
@@ -856,9 +950,22 @@ def watch(
 def wait(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
-    until: str | None = typer.Option(None, "--until", help="Event type to wait for"),
+    until: str = typer.Option(
+        DEFAULT_WAIT_UNTIL,
+        "--until",
+        help=(
+            "Event type(s) to wait for (comma-separated). "
+            "Default waits for terminal outcomes and approval requests. "
+            "Alias: turn_end. Wildcards: any,*."
+        ),
+    ),
     from_event_id: str | None = typer.Option(None, "--from-event-id", help="Cursor event ID"),
-    timeout_seconds: float = typer.Option(10.0, "--timeout-seconds", min=0.1, help="Timeout in seconds"),
+    timeout_seconds: float = typer.Option(
+        DEFAULT_WAIT_TIMEOUT_SECONDS,
+        "--timeout-seconds",
+        min=0.0,
+        help="Timeout in seconds. Set 0 for no timeout.",
+    ),
     input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
@@ -897,9 +1004,13 @@ def wait(
                         json_output=json_output,
                     )
                 timeout_seconds = float(timeout_value)
+            if timeout_seconds < 0:
+                emit_error_and_exit(
+                    SubagentError(code="INVALID_INPUT", message="`timeoutSeconds` must be >= 0"),
+                    json_output=json_output,
+                )
 
         worker_id = _require_value(worker_id, name="worker", json_output=json_output)
-        until = _require_value(until, name="until", json_output=json_output)
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 

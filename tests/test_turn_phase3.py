@@ -140,6 +140,129 @@ class TurnPhase3Tests(unittest.TestCase):
         self.assertIn("type", first_event)
         self.assertIn("data", first_event)
 
+    def test_send_with_wait_returns_matched_event(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "Needs approval",
+                "--request-approval",
+                "--wait",
+                "--wait-timeout-seconds",
+                "1",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        self.assertEqual(send_payload["type"], "turn.waited")
+        self.assertEqual(send_payload["data"]["matchedEvent"]["type"], "approval.requested")
+        self.assertIsNotNone(send_payload["data"]["requestId"])
+        self.assertEqual(send_payload["data"]["state"], "waiting_approval")
+
+    def test_send_with_wait_timeout_zero_uses_no_deadline_mode(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "Needs approval",
+                "--request-approval",
+                "--wait",
+                "--wait-timeout-seconds",
+                "0",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        self.assertEqual(send_payload["type"], "turn.waited")
+        self.assertEqual(send_payload["data"]["matchedEvent"]["type"], "approval.requested")
+
+    def test_wait_uses_default_until_set(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "Needs approval",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        self.assertEqual(send_payload["data"]["state"], "waiting_approval")
+
+        wait_result = self.invoke(
+            [
+                "wait",
+                "--worker",
+                worker_id,
+                "--timeout-seconds",
+                "1",
+                "--json",
+            ]
+        )
+        self.assertEqual(wait_result.exit_code, 0)
+        wait_payload = json.loads(wait_result.stdout)
+        self.assertEqual(wait_payload["type"], "event.matched")
+        self.assertEqual(wait_payload["data"]["type"], "approval.requested")
+
+    def test_wait_supports_turn_end_alias(self) -> None:
+        worker_id = self.start_worker()
+        self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "Needs approval",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        wait_result = self.invoke(
+            [
+                "wait",
+                "--worker",
+                worker_id,
+                "--until",
+                "turn_end",
+                "--timeout-seconds",
+                "1",
+                "--json",
+            ]
+        )
+        self.assertEqual(wait_result.exit_code, 0)
+        wait_payload = json.loads(wait_result.stdout)
+        self.assertEqual(wait_payload["data"]["type"], "approval.requested")
+
+    def test_wait_rejects_unknown_until_value(self) -> None:
+        worker_id = self.start_worker()
+        wait_result = self.invoke(
+            [
+                "wait",
+                "--worker",
+                worker_id,
+                "--until",
+                "turn_end_typo",
+                "--timeout-seconds",
+                "0",
+                "--json",
+            ]
+        )
+        self.assertEqual(wait_result.exit_code, 1)
+        payload = json.loads(wait_result.stdout)
+        self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+
     def test_send_rejects_when_worker_busy(self) -> None:
         worker_id = self.start_worker()
         first_send = self.invoke(
@@ -282,3 +405,6 @@ class TurnPhase3Tests(unittest.TestCase):
         payload = json.loads(wait_result.stdout)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "WAIT_TIMEOUT")
+        details = payload["error"]["details"]
+        self.assertEqual(details["workerState"], "idle")
+        self.assertIsNone(details["latestEvent"])

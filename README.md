@@ -72,7 +72,7 @@ Required workflow:
 2) Check command help before execution (for example `subagent worker --help`, `subagent send --help`, `subagent approve --help`).
 3) Break the task into small executable chunks.
 4) Start/coordinate workers with subagent-cli.
-5) Use send/watch/wait/approve to drive each turn.
+5) Use send/watch/wait/approve to drive each turn (`wait` defaults to terminal+approval events with 60s timeout).
 6) Use handoff/continue when context gets large.
 7) Verify results (tests or checks) before reporting completion.
 
@@ -82,6 +82,11 @@ Task to execute:
 
 After handoff, the manager agent is expected to run the normal CLI lifecycle:
 `worker start` -> `send` -> `watch` -> `approve` -> `handoff` -> `continue`
+
+For a single command that sends and waits for terminal-or-approval events:
+```bash
+subagent send --worker <worker-id> --text "<instruction>" --wait --json
+```
 
 For local simulation/testing without a real ACP launcher:
 ```bash
@@ -109,6 +114,7 @@ subagent worker start --cwd . --debug-mode
 - `config init` defaults: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`
 - Override config path: `SUBAGENT_CONFIG=/path/to/config.yaml`
 - Example config: [config.example.yaml](config.example.yaml)
+- Launchers support either split style (`command: npx`, `args: ["-y", "..."]`) or inline style (`command: "npx -y ..."`) for probe/start/restart.
 
 ## State 💾
 - Default state DB: `<workspace>/.subagent/state/state.db`

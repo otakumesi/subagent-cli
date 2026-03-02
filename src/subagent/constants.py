@@ -22,3 +22,7 @@ PROJECT_HINT_FILENAME = "controller.json"
 
 # Allow slower first-launch paths (e.g., launcher bootstrap) before declaring startup failure.
 RUNTIME_STARTUP_TIMEOUT_SECONDS = 60.0
+
+# Default wait targets include terminal turn outcomes plus approval blocking points.
+DEFAULT_WAIT_UNTIL = "turn.completed,turn.failed,turn.canceled,approval.requested"
+DEFAULT_WAIT_TIMEOUT_SECONDS = 60.0
