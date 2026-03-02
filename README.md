@@ -92,7 +92,8 @@ subagent worker start --cwd . --debug-mode
 ```
 
 ## Troubleshooting 🛠️
-- Ensure the runtime has the permissions required by your launcher (some launchers need outbound network access).
+- Ensure both the runtime and your manager/worker agent sandbox allow what your launcher needs.
+- Some launchers require outbound network access, but agent sandbox policies can block network even when the host machine itself has connectivity.
 - Preflight launcher availability:
 ```bash
 subagent launcher probe <launcher-name> --json
