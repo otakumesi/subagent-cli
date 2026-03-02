@@ -72,20 +72,27 @@ Required workflow:
 2) Check command help before execution (for example `subagent worker --help`, `subagent send --help`, `subagent approve --help`).
 3) Break the task into small executable chunks.
 4) Start/coordinate workers with subagent-cli.
-5) Use send/watch/wait/approve to drive each turn (`wait` defaults to terminal+approval events with 60s timeout).
-6) Use handoff/continue when context gets large.
-7) Verify results (tests or checks) before reporting completion.
+5) Use `send --wait` as the default turn driver.
+6) If `matchedEvent.type` is `approval.requested`, run `approve` and continue with `send --wait`.
+7) Use `watch` only when detailed event streaming/debugging is needed.
+8) Use handoff/continue when context gets large.
+9) Verify results (tests or checks) before reporting completion.
 
 Task to execute:
 <your task here>
 ```
 
-After handoff, the manager agent is expected to run the normal CLI lifecycle:
-`worker start` -> `send` -> `watch` -> `approve` -> `handoff` -> `continue`
+After handoff, the manager agent's standard lifecycle is:
+`worker start` -> `send --wait` -> (`approve` -> `send --wait` as needed) -> `handoff` -> `continue`
 
 For a single command that sends and waits for terminal-or-approval events:
 ```bash
 subagent send --worker <worker-id> --text "<instruction>" --wait --json
+```
+
+Manual wait mode (advanced cursor control) still exists:
+```bash
+subagent wait --worker <worker-id> --until turn_end --timeout-seconds 60 --json
 ```
 
 For local simulation/testing without a real ACP launcher:

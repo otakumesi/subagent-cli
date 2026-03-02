@@ -15,18 +15,18 @@ Read this quick workflow first:
    subagent controller init --cwd <workspace>
 2. Start a worker:
    subagent worker start --cwd <workspace>
-3. Send work:
-   subagent send --worker <worker-id> --text "<instruction>"
-4. Monitor progress:
-   subagent watch --worker <worker-id> --ndjson
-5. If approval is requested:
+3. Send work and wait for a terminal-or-approval event:
+   subagent send --worker <worker-id> --text "<instruction>" --wait --json
+4. If approval is requested:
    subagent approve --worker <worker-id> --request <request-id> --option-id <option-id>
+5. Use watch only when detailed event streaming is needed:
+   subagent watch --worker <worker-id> --follow --ndjson
 
 Operational rules:
 - Keep instructions short, concrete, and outcome-oriented.
 - Use `--json` for machine-readable responses and `--input` for JSON-driven calls.
 - Prefer `send --wait` for task dispatch when you need a single round-trip result.
-- Prefer `subagent wait` defaults for robust turn polling (`--until {DEFAULT_WAIT_UNTIL}`, `--timeout-seconds {DEFAULT_WAIT_TIMEOUT_SECONDS:.0f}`).
+- If you need manual waits, use `wait` defaults (`--until {DEFAULT_WAIT_UNTIL}`, `--timeout-seconds {DEFAULT_WAIT_TIMEOUT_SECONDS:.0f}`).
 - Ensure the runtime has required permissions for the chosen launcher (including network access when needed).
 - Treat `waiting_approval` as a blocking state; resolve via `approve` or `cancel`.
 - Use handoff flow for continuation: `worker handoff` -> `worker continue`.

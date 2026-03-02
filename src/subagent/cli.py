@@ -50,8 +50,9 @@ app = typer.Typer(
         "subagent: protocol-agnostic worker orchestration CLI\n"
         "If you were instructed to use this tool as a manager agent, "
         "start with: `subagent prompt render --target manager`\n"
-        "Tip: `subagent worker start`, `subagent send`, `subagent wait`, and "
-        "`subagent watch` may require running outside your sandbox "
+        "Tip: prefer `subagent send --wait` for the default manager flow; "
+        "use `subagent wait`/`subagent watch` for advanced monitoring. "
+        "These commands may require running outside your sandbox "
         "or with elevated permissions, depending on launcher/runtime policy."
     )
 )

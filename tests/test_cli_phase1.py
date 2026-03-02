@@ -143,9 +143,10 @@ class CLIPhase1Tests(unittest.TestCase):
         self.assertIn("instructed to", result.stdout)
         self.assertIn("use this tool as a manager agent", result.stdout)
         self.assertIn("subagent prompt render --target", result.stdout)
+        self.assertIn("send --wait", result.stdout)
         self.assertIn("outside your sandbox", result.stdout)
         self.assertIn("or with elevated", result.stdout)
-        self.assertIn("permissions, depending on launcher/runtime policy", result.stdout)
+        self.assertIn("launcher/runtime policy", result.stdout)
 
     def test_worker_start_help_mentions_sandbox_permissions(self) -> None:
         result = self.invoke(["worker", "start", "--help"])

@@ -93,6 +93,7 @@ class PolishPhase5Tests(unittest.TestCase):
         manager_prompt = str(manager_payload["data"]["prompt"])
         self.assertIn("Read this quick workflow first", manager_prompt)
         self.assertIn("subagent controller init", manager_prompt)
+        self.assertIn("send --wait", manager_prompt)
 
         worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
         self.assertEqual(worker.exit_code, 0)
