@@ -38,7 +38,7 @@ from .state import StateStore
 from .turn_service import (
     approve_request,
     cancel_turn,
-    find_last_assistant_message,
+    collect_assistant_messages,
     send_message,
     wait_for_event,
     watch_events,
@@ -50,8 +50,9 @@ app = typer.Typer(
         "subagent: protocol-agnostic worker orchestration CLI\n"
         "If you were instructed to use this tool as a manager agent, "
         "start with: `subagent prompt render --target manager`\n"
-        "Tip: prefer `subagent send --wait` for the default manager flow; "
-        "use `subagent wait`/`subagent watch` for advanced monitoring. "
+        "Tip: `subagent send` now waits by default; "
+        "use `--no-wait` for fire-and-return behavior. "
+        "Use `subagent wait`/`subagent watch` for advanced monitoring. "
         "These commands may require running outside your sandbox "
         "or with elevated permissions, depending on launcher/runtime policy."
     )
@@ -723,9 +724,9 @@ def send(
         help="Simulate approval-required turn in local runtime",
     ),
     wait_for_match: bool = typer.Option(
-        False,
+        True,
         "--wait/--no-wait",
-        help="Wait for a matching event before returning.",
+        help="Wait for a matching event before returning (default: enabled).",
     ),
     wait_until: str = typer.Option(
         DEFAULT_WAIT_UNTIL,
@@ -850,12 +851,15 @@ def send(
             waited_payload["waitTimeoutSeconds"] = wait_timeout_seconds
             waited_payload["matchedEvent"] = matched_event
             waited_payload["requestId"] = request_id if isinstance(request_id, str) else None
-            waited_payload["lastAssistantMessage"] = find_last_assistant_message(
+            assistant_messages = collect_assistant_messages(
                 store,
                 worker_id=worker_id,
                 turn_id=turn_id if isinstance(turn_id, str) else None,
                 from_event_id=cursor,
             )
+            waited_payload["lastAssistantMessage"] = assistant_messages.get("fullText")
+            waited_payload["lastAssistantChunk"] = assistant_messages.get("lastChunk")
+            waited_payload["assistantText"] = assistant_messages.get("fullText")
             current_worker = store.get_worker(worker_id)
             if current_worker is not None:
                 waited_payload["state"] = str(current_worker["state"])

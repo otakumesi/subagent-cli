@@ -143,7 +143,8 @@ class CliCommandTests(unittest.TestCase):
         self.assertIn("instructed to", result.stdout)
         self.assertIn("use this tool as a manager agent", result.stdout)
         self.assertIn("subagent prompt render --target", result.stdout)
-        self.assertIn("send --wait", result.stdout)
+        self.assertIn("send` now waits by default", result.stdout)
+        self.assertIn("--no-wait", result.stdout)
 
     def test_worker_start_help_mentions_sandbox_permissions(self) -> None:
         result = self.invoke(["worker", "start", "--help"])

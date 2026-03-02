@@ -486,7 +486,24 @@ def find_last_assistant_message(
     turn_id: str | None,
     from_event_id: str | None = None,
 ) -> str | None:
+    summary = collect_assistant_messages(
+        store,
+        worker_id=worker_id,
+        turn_id=turn_id,
+        from_event_id=from_event_id,
+    )
+    return summary["lastChunk"]
+
+
+def collect_assistant_messages(
+    store: StateStore,
+    *,
+    worker_id: str,
+    turn_id: str | None,
+    from_event_id: str | None = None,
+) -> dict[str, str | None]:
     events = store.list_worker_events(worker_id, from_event_id=from_event_id)
+    chunks: list[str] = []
     for event in reversed(events):
         if turn_id is not None and str(event.get("turn_id") or "") != turn_id:
             continue
@@ -499,8 +516,14 @@ def find_last_assistant_message(
             continue
         text = data.get("text")
         if isinstance(text, str) and text:
-            return text
-    return None
+            chunks.append(text)
+    if not chunks:
+        return {"lastChunk": None, "fullText": None}
+    chunks.reverse()
+    return {
+        "lastChunk": chunks[-1],
+        "fullText": "".join(chunks),
+    }
 
 
 def cancel_turn(

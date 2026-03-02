@@ -144,6 +144,7 @@ class TurnCommandTests(unittest.TestCase):
                 "--text",
                 "Investigate flaky test",
                 "--debug-mode",
+                "--no-wait",
                 "--json",
             ]
         )
@@ -180,6 +181,37 @@ class TurnCommandTests(unittest.TestCase):
         self.assertIn("ts", first_event)
         self.assertIn("type", first_event)
         self.assertIn("data", first_event)
+
+    def test_send_waits_by_default_and_returns_assistant_text(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "default wait path",
+                "--debug-mode",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        self.assertEqual(send_payload["type"], "turn.waited")
+        self.assertEqual(send_payload["data"]["matchedEvent"]["type"], "turn.completed")
+        self.assertIn("assistantText", send_payload["data"])
+        self.assertEqual(
+            send_payload["data"]["assistantText"],
+            "STATUS: turn accepted and completed in local runtime.",
+        )
+        self.assertEqual(
+            send_payload["data"]["lastAssistantMessage"],
+            send_payload["data"]["assistantText"],
+        )
+        self.assertEqual(
+            send_payload["data"]["lastAssistantChunk"],
+            send_payload["data"]["assistantText"],
+        )
 
     def test_send_with_wait_returns_matched_event(self) -> None:
         worker_id = self.start_worker()

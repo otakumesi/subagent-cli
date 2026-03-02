@@ -72,8 +72,8 @@ Required workflow:
 2) Check command help before execution (for example `subagent worker --help`, `subagent send --help`, `subagent approve --help`).
 3) Break the task into small executable chunks.
 4) Start/coordinate workers with subagent-cli.
-5) Use `send --wait` as the default turn driver.
-6) If `matchedEvent.type` is `approval.requested`, run `approve` and continue with `send --wait`.
+5) Use `send` as the default turn driver (`send` waits by default).
+6) If `matchedEvent.type` is `approval.requested`, run `approve` and continue with `send`.
 7) Use `watch` only when detailed event streaming/debugging is needed.
 8) Use handoff/continue when context gets large.
 9) Verify results (tests or checks) before reporting completion.
@@ -83,11 +83,16 @@ Task to execute:
 ```
 
 After handoff, the manager agent's standard lifecycle is:
-`worker start` -> `send --wait` -> (`approve` -> `send --wait` as needed) -> `handoff` -> `continue`
+`worker start` -> `send` -> (`approve` -> `send` as needed) -> `handoff` -> `continue`
 
 For a single command that sends and waits for terminal-or-approval events:
 ```bash
-subagent send --worker <worker-id> --text "<instruction>" --wait --json
+subagent send --worker <worker-id> --text "<instruction>" --json
+```
+
+Opt out of waiting when needed:
+```bash
+subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 ```
 
 Manual wait mode (advanced cursor control) still exists:
