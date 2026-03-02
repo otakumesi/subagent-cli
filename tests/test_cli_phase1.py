@@ -107,6 +107,9 @@ class CLIPhase1Tests(unittest.TestCase):
         self.assertIn("launchers:", generated)
         self.assertIn("profiles:", generated)
         self.assertIn("defaults:", generated)
+        self.assertIn("command: npx", generated)
+        self.assertIn("@zed-industries/codex-acp", generated)
+        self.assertIn("@zed-industries/claude-agent-acp", generated)
 
         second = self.invoke(
             ["config", "init", "--path", str(config_out), "--json"],
@@ -174,6 +177,53 @@ class CLIPhase1Tests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["type"], "launcher.shown")
         self.assertEqual(payload["data"]["command"], "project-codex-acp")
+
+    def test_worker_list_errors_when_workspace_root_cannot_be_resolved(self) -> None:
+        env = {
+            "SUBAGENT_CONFIG": str(self.config_path),
+            "SUBAGENT_STATE_DIR": "",
+            "SUBAGENT_CTL_ID": "",
+            "SUBAGENT_CTL_EPOCH": "",
+            "SUBAGENT_CTL_TOKEN": "",
+        }
+        original_cwd = Path.cwd()
+        os.chdir(self.root)
+        try:
+            result = self.runner.invoke(app, ["worker", "list", "--json"], env=env, catch_exceptions=False)
+        finally:
+            os.chdir(original_cwd)
+        self.assertEqual(result.exit_code, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["error"]["code"], "WORKSPACE_ROOT_NOT_FOUND")
+
+    def test_controller_init_uses_cwd_for_state_resolution_without_state_env(self) -> None:
+        env = {
+            "SUBAGENT_CONFIG": str(self.config_path),
+            "SUBAGENT_STATE_DIR": "",
+            "SUBAGENT_CTL_ID": "",
+            "SUBAGENT_CTL_EPOCH": "",
+            "SUBAGENT_CTL_TOKEN": "",
+        }
+        outsider = self.root / "outsider"
+        outsider.mkdir(parents=True, exist_ok=True)
+        target_workspace = self.root / "target-workspace"
+        target_workspace.mkdir(parents=True, exist_ok=True)
+
+        original_cwd = Path.cwd()
+        os.chdir(outsider)
+        try:
+            result = self.runner.invoke(
+                app,
+                ["controller", "init", "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+        finally:
+            os.chdir(original_cwd)
+
+        self.assertEqual(result.exit_code, 0)
+        state_db = target_workspace / ".subagent" / "state" / "state.db"
+        self.assertTrue(state_db.exists())
 
     def test_controller_init_and_status_with_valid_env_handle(self) -> None:
         init_result = self.invoke(

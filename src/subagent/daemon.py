@@ -14,7 +14,7 @@ import typer
 from .config import load_config
 from .constants import DAEMON_STATUS_PATH
 from .errors import SubagentError
-from .output import emit_json
+from .output import emit_error_and_exit, emit_json
 from .paths import resolve_state_dir
 from .runtime_service import restart_worker_runtime, runtime_request
 from .state import WORKER_STATE_STOPPED, StateStore
@@ -215,7 +215,10 @@ def run_daemon(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON response."),
 ) -> None:
-    state_dir = resolve_state_dir()
+    try:
+        state_dir = resolve_state_dir()
+    except SubagentError as error:
+        emit_error_and_exit(error, json_output=json_output)
     store = StateStore(state_dir / "state.db")
     store.bootstrap()
     status_path = _status_path_for_state_dir(state_dir)
@@ -284,7 +287,10 @@ def run_daemon(
 def daemon_status(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON response."),
 ) -> None:
-    state_dir = resolve_state_dir()
+    try:
+        state_dir = resolve_state_dir()
+    except SubagentError as error:
+        emit_error_and_exit(error, json_output=json_output)
     status_path = _status_path_for_state_dir(state_dir)
     if not status_path.exists():
         payload = {

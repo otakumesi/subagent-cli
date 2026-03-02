@@ -32,7 +32,7 @@ from .input_contract import (
 )
 from .launcher_service import probe_launcher
 from .output import emit_error_and_exit, emit_json, ok_envelope
-from .paths import resolve_config_path, resolve_workspace_path
+from .paths import resolve_config_path, resolve_state_db_path, resolve_workspace_path
 from .prompt_service import render_prompt
 from .state import StateStore
 from .turn_service import approve_request, cancel_turn, send_message, wait_for_event, watch_events
@@ -76,15 +76,19 @@ _DEFAULT_CONFIG_TEMPLATE = """launchers:
   codex:
     backend:
       kind: acp-stdio
-    command: codex-acp
-    args: []
+    command: npx
+    args:
+      - -y
+      - "@zed-industries/codex-acp"
     env: {}
 
   claude-code:
     backend:
       kind: acp-stdio
-    command: claude-code-acp
-    args: []
+    command: npx
+    args:
+      - -y
+      - "@zed-industries/claude-agent-acp"
     env: {}
 
 profiles:
@@ -187,10 +191,14 @@ def config_init(
         typer.echo(f"scope: {normalized_scope}")
 
 
-def _store() -> StateStore:
-    store = StateStore()
-    store.bootstrap()
-    return store
+def _store(*, json_output: bool, workspace: Path | None = None) -> StateStore:
+    try:
+        store = StateStore(resolve_state_db_path(workspace=workspace))
+        store.bootstrap()
+        return store
+    except SubagentError as error:
+        emit_error_and_exit(error, json_output=json_output)
+    raise AssertionError("unreachable")
 
 
 def _is_param_default(ctx: typer.Context, name: str) -> bool:
@@ -480,6 +488,7 @@ def _handle_print_env_flag(print_env: bool, json_output: bool) -> None:
 
 @controller_app.command("init")
 def controller_init(
+    ctx: typer.Context,
     cwd: Path = typer.Option(Path("."), "--cwd", help="Workspace root"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller ID override"),
     label: str = typer.Option("default-manager", "--label", help="Controller label"),
@@ -491,7 +500,8 @@ def controller_init(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     _handle_print_env_flag(print_env, json_output)
-    store = _store()
+    workspace_hint = None if _is_param_default(ctx, "cwd") else resolve_workspace_path(cwd)
+    store = _store(json_output=json_output, workspace=workspace_hint)
     try:
         initialized = init_controller(
             store,
@@ -519,6 +529,7 @@ def controller_init(
 
 @controller_app.command("attach")
 def controller_attach(
+    ctx: typer.Context,
     cwd: Path = typer.Option(Path("."), "--cwd", help="Workspace root"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller ID override"),
     takeover: bool = typer.Option(False, "--takeover", help="Take ownership even if active owner exists"),
@@ -530,7 +541,8 @@ def controller_attach(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     _handle_print_env_flag(print_env, json_output)
-    store = _store()
+    workspace_hint = None if _is_param_default(ctx, "cwd") else resolve_workspace_path(cwd)
+    store = _store(json_output=json_output, workspace=workspace_hint)
     try:
         attached = attach_controller(
             store,
@@ -558,11 +570,13 @@ def controller_attach(
 
 @controller_app.command("status")
 def controller_status(
+    ctx: typer.Context,
     cwd: Path = typer.Option(Path("."), "--cwd", help="Workspace root"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller ID override"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    workspace_hint = None if _is_param_default(ctx, "cwd") else resolve_workspace_path(cwd)
+    store = _store(json_output=json_output, workspace=workspace_hint)
     workspace = resolve_workspace_path(cwd)
     resolved_controller_id = resolve_controller_id(
         store,
@@ -633,7 +647,10 @@ def controller_recover(
     cwd: Path | None = typer.Option(None, "--cwd", help="Optional workspace filter"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         payload = recover_controllers(store, workspace=cwd)
     except SubagentError as error:
@@ -650,12 +667,14 @@ def controller_recover(
 
 @controller_app.command("release")
 def controller_release(
+    ctx: typer.Context,
     cwd: Path = typer.Option(Path("."), "--cwd", help="Workspace root"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller ID override"),
     force: bool = typer.Option(False, "--force", help="Release without validating env handle"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    workspace_hint = None if _is_param_default(ctx, "cwd") else resolve_workspace_path(cwd)
+    store = _store(json_output=json_output, workspace=workspace_hint)
     try:
         payload = release_controller(
             store,
@@ -740,7 +759,7 @@ def send(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store()
+    store = _store(json_output=json_output)
     config = _load_config_or_exit(config_path, json_output=json_output)
     if blocks is None:
         blocks = _parse_blocks_json_or_exit(blocks_json, json_output=json_output)
@@ -794,7 +813,7 @@ def watch(
             ),
             json_output=True,
         )
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         events = watch_events(
             store,
@@ -884,7 +903,7 @@ def wait(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         event = wait_for_event(
             store,
@@ -956,7 +975,7 @@ def approve(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store()
+    store = _store(json_output=json_output)
     config = _load_config_or_exit(config_path, json_output=json_output)
     try:
         payload = approve_request(
@@ -986,7 +1005,7 @@ def cancel(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     config = _load_config_or_exit(config_path, json_output=json_output)
     try:
         payload = cancel_turn(
@@ -1079,7 +1098,8 @@ def worker_start(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store()
+    workspace_hint = None if _is_param_default(ctx, "cwd") else resolve_workspace_path(cwd)
+    store = _store(json_output=json_output, workspace=workspace_hint)
     config = _load_config_or_exit(config_path, json_output=json_output)
     try:
         payload = start_worker(
@@ -1109,7 +1129,7 @@ def worker_list(
     controller_id: str | None = typer.Option(None, "--controller-id", help="Filter by controller ID"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         items = list_workers(store, controller_id=controller_id)
     except SubagentError as error:
@@ -1134,7 +1154,7 @@ def worker_show(
     worker_id: str = typer.Argument(..., help="Worker ID"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         payload = show_worker(store, worker_id)
     except SubagentError as error:
@@ -1152,7 +1172,7 @@ def worker_inspect(
     events_limit: int = typer.Option(20, "--events-limit", min=1, max=200, help="Number of recent events"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         payload = inspect_worker(store, worker_id, events_limit=events_limit)
     except SubagentError as error:
@@ -1174,7 +1194,7 @@ def worker_stop(
     force: bool = typer.Option(False, "--force", help="Force transition to stopped"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         payload = stop_worker(store, worker_id, force=force)
     except SubagentError as error:
@@ -1196,7 +1216,7 @@ def worker_handoff(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(json_output=json_output)
     try:
         payload = create_handoff(
             store,
@@ -1236,7 +1256,10 @@ def worker_continue(
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store()
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     config = _load_config_or_exit(config_path, json_output=json_output)
     execution_mode = "simulate" if debug_mode else "strict"
     try:

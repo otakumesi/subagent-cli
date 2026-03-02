@@ -25,6 +25,7 @@
 - handoff store with `handoff.md` + `checkpoint.json`
 - `--input` JSON contract (major commands) with duplicate-field rejection
 - owner handle model: `controllerId + epoch + token`
+- workspace-scoped runtime state by default: `<workspace-root>/.subagent/state` (or `SUBAGENT_STATE_DIR` override)
 - project-local hint: `<workspace>/.subagent/controller.json`
 - versioned envelope for JSON responses
 
@@ -32,3 +33,4 @@
 - local single-host control plane only (`subagentd` is minimal bootstrap/status)
 - no queued turn execution; `send` is rejected while worker is busy
 - resume strategy is handoff-first (no bit-perfect backend session resurrection)
+- commands that need implicit state path fail with `WORKSPACE_ROOT_NOT_FOUND` when workspace root cannot be inferred
