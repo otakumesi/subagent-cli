@@ -65,6 +65,7 @@ Use this instruction template:
 ```text
 Act as the project manager for this repository.
 Use subagent-cli as the control plane and progress this task by delegating to worker agents.
+If worker startup or turn operations fail due to sandbox limits, request approval for out-of-sandbox execution and retry.
 
 Required workflow:
 1) First, run `subagent prompt render --target manager` and follow that output.
