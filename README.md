@@ -6,8 +6,8 @@
 [![Publish to PyPI](https://github.com/otakumesi/subagent-cli/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/otakumesi/subagent-cli/actions/workflows/publish-pypi.yml)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)](https://pypi.org/project/subagent-cli/)
 
-Orchestrate worker agents from a parent controller, cleanly and safely.  
-`subagent-cli` gives manager agents (for example Codex or Claude Code) a practical control plane for starting workers, sending turns, handling approvals, and continuing handoffs. 🤖
+Orchestrate coding agents from another coding agent, cleanly and safely.  
+`subagent-cli` turns a manager coding agent (for example Codex or Claude Code) into a practical control plane for starting worker coding agents, sending turns, handling approvals, and continuing handoffs. 🤖
 
 The command interface is protocol-agnostic, and the current runtime backend is ACP-based (`acp-stdio`).
 
@@ -91,11 +91,12 @@ subagent worker start --cwd . --debug-mode
 ## Troubleshooting 🛠️
 - Ensure both the runtime and your manager/worker agent sandbox allow what your launcher needs.
 - Some launchers require outbound network access, but agent sandbox policies can block network even when the host machine itself has connectivity.
+- If state path resolution fails, run commands from inside your workspace root (or set `SUBAGENT_STATE_DIR` explicitly).
 - Preflight launcher availability:
 ```bash
 subagent launcher probe <launcher-name> --json
 ```
-- If `worker start` fails with `BACKEND_UNAVAILABLE`, inspect runtime logs under `~/.local/share/subagent/runtimes/` (or `$SUBAGENT_STATE_DIR/runtimes/` when overridden).
+- If `worker start` fails with `BACKEND_UNAVAILABLE`, inspect runtime logs under `<workspace>/.subagent/state/runtimes/` (default) or `$SUBAGENT_STATE_DIR/runtimes/` (when overridden).
 - For cut-down local testing without backend connectivity:
 ```bash
 subagent worker start --cwd . --debug-mode
@@ -105,11 +106,14 @@ subagent worker start --cwd . --debug-mode
 - Resolution order: `--config` > `SUBAGENT_CONFIG` > nearest `<cwd-or-parent>/.subagent/config.yaml` > `~/.config/subagent/config.yaml`
 - Generate user config: `subagent config init --scope user`
 - Generate project config: `subagent config init --scope project --cwd .`
+- `config init` defaults: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`
 - Override config path: `SUBAGENT_CONFIG=/path/to/config.yaml`
 - Example config: [config.example.yaml](config.example.yaml)
 
 ## State 💾
-- Default state DB: `~/.local/share/subagent/state.db`
+- Default state DB: `<workspace>/.subagent/state/state.db`
+- Override state dir: `SUBAGENT_STATE_DIR=/path/to/state-dir`
+- If workspace root cannot be detected and no override is set, commands fail with `WORKSPACE_ROOT_NOT_FOUND`
 - Project hint file: `<workspace>/.subagent/controller.json`
 
 ## Documentation 📚
