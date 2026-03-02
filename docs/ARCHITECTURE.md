@@ -17,7 +17,7 @@
 - turn operations: `send`, `watch`, `wait`, `approve`, `cancel`
 - `subagentd`: `run`, `status`
 - normalized event journal and approval queue
-- default `config init` template includes ACP launchers for `codex`, `claude-code`, `gemini`, `opencode`
+- default `config init` template includes ACP launchers for `codex`, `claude-code`, `gemini`, `opencode`, `cline`, `github-copilot`, `kiro`
 - persistent `acp-stdio` worker runtime:
   - `worker start` launches runtime (`initialize` -> `session/new`)
   - restart path attempts `session/load` using stored `sessionId`, then falls back to `session/new`

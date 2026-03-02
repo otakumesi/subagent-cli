@@ -136,7 +136,7 @@ subagent worker start --cwd . --debug-mode
 - Resolution order: `--config` > `SUBAGENT_CONFIG` > nearest `<cwd-or-parent>/.subagent/config.yaml` > `~/.config/subagent/config.yaml`
 - Generate user config: `subagent config init --scope user`
 - Generate project config: `subagent config init --scope project --cwd .`
-- `config init` defaults: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`, `gemini` -> `npx -y @google/gemini-cli --experimental-acp`, `opencode` -> `opencode acp`
+- `config init` defaults: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`, `gemini` -> `npx -y @google/gemini-cli --experimental-acp`, `opencode` -> `opencode acp`, `cline` -> `npx -y cline --acp`, `github-copilot` -> `npx -y @github/copilot-language-server --acp`, `kiro` -> `npx -y @kirodotdev/cli acp`
 - Override config path: `SUBAGENT_CONFIG=/path/to/config.yaml`
 - Example config: [config.example.yaml](config.example.yaml)
 - Launchers support either split style (`command: npx`, `args: ["-y", "..."]`) or inline style (`command: "npx -y ..."`) for probe/start/restart.

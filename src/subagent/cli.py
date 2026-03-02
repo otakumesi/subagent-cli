@@ -118,6 +118,36 @@ _DEFAULT_CONFIG_TEMPLATE = """launchers:
       - acp
     env: {}
 
+  cline:
+    backend:
+      kind: acp-stdio
+    command: npx
+    args:
+      - -y
+      - "cline"
+      - "--acp"
+    env: {}
+
+  github-copilot:
+    backend:
+      kind: acp-stdio
+    command: npx
+    args:
+      - -y
+      - "@github/copilot-language-server"
+      - "--acp"
+    env: {}
+
+  kiro:
+    backend:
+      kind: acp-stdio
+    command: npx
+    args:
+      - -y
+      - "@kirodotdev/cli"
+      - acp
+    env: {}
+
 profiles:
   worker-default:
     promptLanguage: en

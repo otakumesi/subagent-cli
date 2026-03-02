@@ -136,7 +136,7 @@ subagent worker start --cwd . --debug-mode
 - 解決順: `--config` > `SUBAGENT_CONFIG` > 最寄りの `<cwd-or-parent>/.subagent/config.yaml` > `~/.config/subagent/config.yaml`
 - ユーザー設定の生成: `subagent config init --scope user`
 - プロジェクト設定の生成: `subagent config init --scope project --cwd .`
-- `config init` の既定値: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`, `gemini` -> `npx -y @google/gemini-cli --experimental-acp`, `opencode` -> `opencode acp`
+- `config init` の既定値: `codex` -> `npx -y @zed-industries/codex-acp`, `claude-code` -> `npx -y @zed-industries/claude-agent-acp`, `gemini` -> `npx -y @google/gemini-cli --experimental-acp`, `opencode` -> `opencode acp`, `cline` -> `npx -y cline --acp`, `github-copilot` -> `npx -y @github/copilot-language-server --acp`, `kiro` -> `npx -y @kirodotdev/cli acp`
 - 設定パス上書き: `SUBAGENT_CONFIG=/path/to/config.yaml`
 - 設定例: [config.example.yaml](config.example.yaml)
 - launcher は split 形式（`command: npx`, `args: ["-y", "..."]`）と inline 形式（`command: "npx -y ..."`）の両方に対応します。

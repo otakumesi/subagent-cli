@@ -114,6 +114,10 @@ class CliCommandTests(unittest.TestCase):
         self.assertIn("--experimental-acp", generated)
         self.assertIn("command: opencode", generated)
         self.assertIn("- acp", generated)
+        self.assertIn("- \"cline\"", generated)
+        self.assertIn("- \"--acp\"", generated)
+        self.assertIn("@github/copilot-language-server", generated)
+        self.assertIn("@kirodotdev/cli", generated)
 
         second = self.invoke(
             ["config", "init", "--path", str(config_out), "--json"],
