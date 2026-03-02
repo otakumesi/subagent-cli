@@ -14,10 +14,21 @@ Orchestrate coding agents from another coding agent, cleanly and safely.
 The command interface is protocol-agnostic, and the current runtime backend is ACP-based (`acp-stdio`).
 
 ## Why subagent-cli? 🚀
-- Run multi-agent workflows from one place (`worker start` to `worker continue`).
-- Keep control explicit with strict approval operations and structured event flow.
-- Recover cleanly with runtime restart + session resume (`session/load`).
-- Stay local-first and scriptable with a single CLI surface.
+Coordinating multiple coding agents is harder than it looks.
+Many tools centralize this behind a single `/subagent`-style command.
+But in real workflows, you may want to use different agents for different roles.
+
+subagent-cli exists for that split.
+It separates responsibilities and routes communication through ACP to keep multi-agent collaboration simple and explicit.
+
+For example, you can use Claude Code as the manager, start Codex for code review, and start Gemini for implementation.
+
+## Concrete Use Cases 🧪
+- Flaky test investigation: split reproduction, root-cause analysis, and fix proposals across multiple workers.
+- Parallel code review / research workers: run reviewer-focused and research-focused workers in parallel, then merge outputs in the manager turn.
+- Parent crash -> handoff -> continue: recover from manager interruption by resuming from handoff context instead of restarting from scratch.
+
+Note: the sample prompt in Quick Start is project-manager oriented. For the use cases above, adjust manager role instructions and worker prompts to match your workflow.
 
 ## Current Scope 🧭
 - Alpha (`v0.1.x`)
