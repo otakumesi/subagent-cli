@@ -2,15 +2,19 @@ launchers:
   codex:
     backend:
       kind: acp-stdio
-    command: codex-acp
-    args: []
+    command: npx
+    args:
+      - -y
+      - "@zed-industries/codex-acp"
     env: {}
 
   claude-code:
     backend:
       kind: acp-stdio
-    command: claude-code-acp
-    args: []
+    command: npx
+    args:
+      - -y
+      - "@zed-industries/claude-agent-acp"
     env: {}
 
 profiles:
