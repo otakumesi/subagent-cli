@@ -23,16 +23,15 @@ The CLI surface is protocol-agnostic, while the current runtime implementation i
 `pip install dist/subagent_cli-*.whl`
 
 ## Quick Start
-1. Prepare config:
-`mkdir -p ~/.config/subagent && cp config.example.yaml ~/.config/subagent/config.yaml`
-2. Initialize a controller in your workspace:
+1. Generate the default user config:
+`subagent config init --scope user`
+2. Edit `~/.config/subagent/config.yaml` and update launcher commands/args/env for your environment.
+3. Initialize a controller in your workspace:
 `subagent controller init --cwd .`
-3. Start a worker:
-`subagent worker start --cwd .`
-4. Send an instruction:
-`subagent send --worker <worker-id> --text "Investigate failing tests"`
-5. Watch events:
-`subagent watch --worker <worker-id> --ndjson`
+4. Render manager guidance and hand off operation to your manager agent:
+`subagent prompt render --target manager`
+
+After step 4, Codex/Claude Code can handle normal lifecycle operations (`worker start`, `send`, `watch`, `approve`, `handoff`, `continue`) via the CLI.
 
 For local simulation/testing without a real ACP launcher:
 `subagent worker start --cwd . --debug-mode`
@@ -47,7 +46,9 @@ For local simulation/testing without a real ACP launcher:
 `subagent worker start --cwd . --debug-mode`
 
 ## Configuration
-- Default config path: `~/.config/subagent/config.yaml`
+- Resolution order: `--config` > `SUBAGENT_CONFIG` > nearest `<cwd-or-parent>/.subagent/config.yaml` > `~/.config/subagent/config.yaml`
+- Generate user config: `subagent config init --scope user`
+- Generate project config: `subagent config init --scope project --cwd .`
 - Override config path: `SUBAGENT_CONFIG=/path/to/config.yaml`
 - Example config: [config.example.yaml](config.example.yaml)
 

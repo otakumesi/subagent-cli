@@ -10,6 +10,7 @@ import click
 import typer
 
 from .config import SubagentConfig, load_config
+from .constants import PROJECT_HINT_DIRNAME
 from .controller_service import (
     attach_controller,
     init_controller,
@@ -31,7 +32,7 @@ from .input_contract import (
 )
 from .launcher_service import probe_launcher
 from .output import emit_error_and_exit, emit_json, ok_envelope
-from .paths import resolve_workspace_path
+from .paths import resolve_config_path, resolve_workspace_path
 from .prompt_service import render_prompt
 from .state import StateStore
 from .turn_service import approve_request, cancel_turn, send_message, wait_for_event, watch_events
@@ -40,12 +41,17 @@ from .worker_service import inspect_worker, list_workers, show_worker, start_wor
 app = typer.Typer(
     help=(
         "subagent: protocol-agnostic worker orchestration CLI\n"
-        "If you are a manager agent, start with: `subagent prompt render --target manager`"
+        "If you were instructed to use this tool as a manager agent, "
+        "start with: `subagent prompt render --target manager`\n"
+        "Tip: `subagent worker start`, `subagent send`, `subagent wait`, and "
+        "`subagent watch` may require running outside your sandbox "
+        "or with elevated permissions, depending on launcher/runtime policy."
     )
 )
 launcher_app = typer.Typer(help="Manage launcher registry from config")
 profile_app = typer.Typer(help="Manage profile registry from config")
 pack_app = typer.Typer(help="Manage pack registry from config")
+config_app = typer.Typer(help="Manage config files")
 prompt_app = typer.Typer(help="Render manager/worker prompts")
 controller_app = typer.Typer(help="Manage controller ownership")
 worker_app = typer.Typer(help="Manage worker lifecycle")
@@ -53,6 +59,7 @@ worker_app = typer.Typer(help="Manage worker lifecycle")
 app.add_typer(launcher_app, name="launcher")
 app.add_typer(profile_app, name="profile")
 app.add_typer(pack_app, name="pack")
+app.add_typer(config_app, name="config")
 app.add_typer(prompt_app, name="prompt")
 app.add_typer(controller_app, name="controller")
 app.add_typer(worker_app, name="worker")
@@ -63,6 +70,121 @@ def _load_config_or_exit(config_path: Path | None, *, json_output: bool) -> Suba
         return load_config(config_path)
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
+
+
+_DEFAULT_CONFIG_TEMPLATE = """launchers:
+  codex:
+    backend:
+      kind: acp-stdio
+    command: codex-acp
+    args: []
+    env: {}
+
+  claude-code:
+    backend:
+      kind: acp-stdio
+    command: claude-code-acp
+    args: []
+    env: {}
+
+profiles:
+  worker-default:
+    promptLanguage: en
+    responseLanguage: same_as_manager
+    autoHandoff: turn_end
+    policyPreset: safe-default
+    defaultPacks:
+      - repo-conventions
+    bootstrap: |
+      You are a worker subagent.
+      Use STATUS:, ASK:, BLOCKED:, and DONE: prefixes when helpful.
+      Keep messages concise and actionable.
+
+packs:
+  repo-conventions:
+    description: Follow repository coding conventions and keep diffs small.
+    prompt: |
+      Read existing conventions before editing.
+      Prefer minimal, explicit changes.
+
+  python-test-fix:
+    description: Fix flaky Python tests with minimal change scope.
+    prompt: |
+      Reproduce failing tests first.
+      Add regression coverage where practical.
+
+policyPresets:
+  safe-default:
+    filesystem: workspace-write
+    network: ask
+    dangerousCommands: deny
+
+defaults:
+  launcher: codex
+  profile: worker-default
+  packs:
+    - repo-conventions
+"""
+
+
+def _default_project_config_path(cwd: Path) -> Path:
+    return resolve_workspace_path(cwd) / PROJECT_HINT_DIRNAME / "config.yaml"
+
+
+@config_app.command("init")
+def config_init(
+    scope: str = typer.Option(
+        "user",
+        "--scope",
+        help="Config target scope: user or project.",
+    ),
+    cwd: Path = typer.Option(Path("."), "--cwd", help="Workspace root for project scope"),
+    path: Path | None = typer.Option(None, "--path", help="Explicit output path override"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing file"),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
+) -> None:
+    normalized_scope = scope.strip().lower()
+    if normalized_scope not in {"user", "project"}:
+        emit_error_and_exit(
+            SubagentError(
+                code="INVALID_ARGUMENT",
+                message="`--scope` must be one of: user, project",
+                details={"scope": scope},
+            ),
+            json_output=json_output,
+        )
+
+    if path is not None:
+        target_path = path.expanduser().resolve()
+    elif normalized_scope == "project":
+        target_path = _default_project_config_path(cwd)
+    else:
+        target_path = resolve_config_path(prefer_project=False)
+
+    existed = target_path.exists()
+    if existed and not force:
+        emit_error_and_exit(
+            SubagentError(
+                code="CONFIG_ALREADY_EXISTS",
+                message=f"Config already exists: {target_path}",
+                details={"path": str(target_path)},
+            ),
+            json_output=json_output,
+        )
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(_DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+
+    payload = {
+        "path": str(target_path),
+        "scope": normalized_scope,
+        "overwritten": existed,
+    }
+    if json_output:
+        emit_json(ok_envelope("config.initialized", payload))
+    else:
+        typer.echo(f"configPath: {target_path}")
+        typer.echo(f"scope: {normalized_scope}")
 
 
 def _store() -> StateStore:
@@ -550,7 +672,13 @@ def controller_release(
         typer.echo(f"released: {payload['released']}")
 
 
-@app.command("send")
+@app.command(
+    "send",
+    help=(
+        "Send a turn to a worker. "
+        "In sandboxed manager environments, this may need outside-sandbox execution."
+    ),
+)
 def send(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
@@ -637,7 +765,13 @@ def send(
         typer.echo(f"state: {payload['state']}")
 
 
-@app.command("watch")
+@app.command(
+    "watch",
+    help=(
+        "Watch worker events. "
+        "In sandboxed manager environments, this may need outside-sandbox execution."
+    ),
+)
 def watch(
     worker_id: str = typer.Option(..., "--worker", help="Worker ID"),
     from_event_id: str | None = typer.Option(None, "--from-event-id", help="Cursor event ID"),
@@ -693,7 +827,13 @@ def watch(
         return
 
 
-@app.command("wait")
+@app.command(
+    "wait",
+    help=(
+        "Wait for a worker event. "
+        "In sandboxed manager environments, this may need outside-sandbox execution."
+    ),
+)
 def wait(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
@@ -869,7 +1009,8 @@ def cancel(
     help=(
         "Start a worker runtime. "
         "Tip: run `subagent launcher probe <launcher-name> --json` first and ensure "
-        "launcher-required permissions (including network access) are available."
+        "launcher-required permissions (including network access) are available. "
+        "In sandboxed manager environments, this may need outside-sandbox execution."
     ),
 )
 def worker_start(
