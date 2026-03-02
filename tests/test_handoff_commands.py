@@ -36,7 +36,7 @@ defaults:
 """
 
 
-class HandoffPhase4Tests(unittest.TestCase):
+class HandoffCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)

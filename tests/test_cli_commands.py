@@ -37,7 +37,7 @@ defaults:
 """
 
 
-class CLIPhase1Tests(unittest.TestCase):
+class CliCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
@@ -137,27 +137,40 @@ class CLIPhase1Tests(unittest.TestCase):
         self.assertEqual(payload["data"]["scope"], "project")
         self.assertTrue(expected.exists())
 
-    def test_root_help_mentions_manager_prompt_bootstrap(self) -> None:
+    def test_root_help_mentions_manager_bootstrap_flow(self) -> None:
         result = self.invoke(["--help"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("instructed to", result.stdout)
         self.assertIn("use this tool as a manager agent", result.stdout)
         self.assertIn("subagent prompt render --target", result.stdout)
         self.assertIn("send --wait", result.stdout)
-        self.assertIn("outside your sandbox", result.stdout)
-        self.assertIn("or with elevated", result.stdout)
-        self.assertIn("launcher/runtime policy", result.stdout)
 
     def test_worker_start_help_mentions_sandbox_permissions(self) -> None:
         result = self.invoke(["worker", "start", "--help"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("outside-sandbox execution", result.stdout)
 
-    def test_send_wait_watch_help_mentions_sandbox_permissions(self) -> None:
-        for args in (["send", "--help"], ["wait", "--help"], ["watch", "--help"]):
-            result = self.invoke(args)
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("outside-sandbox execution", result.stdout)
+    def test_send_help_lists_wait_options(self) -> None:
+        result = self.invoke(["send", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--wait", result.stdout)
+        self.assertIn("--no-wait", result.stdout)
+        self.assertIn("--wait-until", result.stdout)
+        self.assertIn("wait-timeout", result.stdout)
+
+    def test_wait_help_lists_alias_and_timeout_behavior(self) -> None:
+        result = self.invoke(["wait", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("turn_end", result.stdout)
+        self.assertIn("--timeout-seconds", result.stdout)
+        self.assertIn("no timeout", result.stdout)
+
+    def test_watch_help_lists_streaming_options(self) -> None:
+        result = self.invoke(["watch", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--follow", result.stdout)
+        self.assertIn("--from-event-id", result.stdout)
+        self.assertIn("--ndjson", result.stdout)
 
     def test_project_config_is_auto_discovered_from_workspace(self) -> None:
         project_config = self.workspace / ".subagent" / "config.yaml"

@@ -11,7 +11,7 @@ from subagent.daemon import app
 from subagent.state import StateStore
 
 
-class DaemonPhase1Tests(unittest.TestCase):
+class DaemonTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)

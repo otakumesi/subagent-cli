@@ -36,7 +36,7 @@ defaults:
 """
 
 
-class WorkerPhase2Tests(unittest.TestCase):
+class WorkerLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)

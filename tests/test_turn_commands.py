@@ -36,7 +36,7 @@ defaults:
 """
 
 
-class TurnPhase3Tests(unittest.TestCase):
+class TurnCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
@@ -85,9 +85,50 @@ class TurnPhase3Tests(unittest.TestCase):
         return str(payload["data"]["workerId"])
 
     def test_send_fails_when_backend_unavailable_without_simulate(self) -> None:
-        worker_id = self.start_worker()
+        broken_config_path = self.root / "broken-config.json"
+        broken = {
+            "launchers": {
+                "broken": {
+                    "backend": {"kind": "acp-stdio"},
+                    "command": "nonexistent-acp-command-for-test",
+                    "args": [],
+                    "env": {},
+                }
+            },
+            "profiles": {
+                "worker-default": {
+                    "promptLanguage": "en",
+                    "responseLanguage": "same_as_manager",
+                    "defaultPacks": ["repo-conventions"],
+                    "bootstrap": "You are a worker subagent.",
+                }
+            },
+            "packs": {
+                "repo-conventions": {
+                    "description": "Follow repo conventions",
+                    "prompt": "Keep changes small.",
+                }
+            },
+            "defaults": {"launcher": "broken", "profile": "worker-default"},
+        }
+        broken_config_path.write_text(json.dumps(broken), encoding="utf-8")
+        env = {"SUBAGENT_CONFIG": str(broken_config_path)}
+
+        init_result = self.invoke(
+            ["controller", "init", "--cwd", str(self.workspace), "--json"],
+            env=env,
+        )
+        self.assertEqual(init_result.exit_code, 0)
+        start_result = self.invoke(
+            ["worker", "start", "--cwd", str(self.workspace), "--debug-mode", "--json"],
+            env=env,
+        )
+        self.assertEqual(start_result.exit_code, 0)
+        start_payload = json.loads(start_result.stdout)
+        worker_id = str(start_payload["data"]["workerId"])
         send_result = self.invoke(
-            ["send", "--worker", worker_id, "--text", "strict by default", "--json"]
+            ["send", "--worker", worker_id, "--text", "strict by default", "--json"],
+            env=env,
         )
         self.assertEqual(send_result.exit_code, 1)
         payload = json.loads(send_result.stdout)

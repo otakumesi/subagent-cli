@@ -10,7 +10,7 @@ from subagent import paths
 from subagent.errors import SubagentError
 
 
-class PathsPhase6Tests(unittest.TestCase):
+class PathsTests(unittest.TestCase):
     def test_resolve_state_dir_uses_env_override(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             env_state_dir = Path(tempdir) / "env-state"

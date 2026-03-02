@@ -36,7 +36,7 @@ defaults:
 """
 
 
-class PolishPhase5Tests(unittest.TestCase):
+class PromptAndContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
