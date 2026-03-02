@@ -110,6 +110,10 @@ class CliCommandTests(unittest.TestCase):
         self.assertIn("command: npx", generated)
         self.assertIn("@zed-industries/codex-acp", generated)
         self.assertIn("@zed-industries/claude-agent-acp", generated)
+        self.assertIn("@google/gemini-cli", generated)
+        self.assertIn("--experimental-acp", generated)
+        self.assertIn("command: opencode", generated)
+        self.assertIn("- acp", generated)
 
         second = self.invoke(
             ["config", "init", "--path", str(config_out), "--json"],

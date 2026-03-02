@@ -100,6 +100,24 @@ _DEFAULT_CONFIG_TEMPLATE = """launchers:
       - "@zed-industries/claude-agent-acp"
     env: {}
 
+  gemini:
+    backend:
+      kind: acp-stdio
+    command: npx
+    args:
+      - -y
+      - "@google/gemini-cli"
+      - "--experimental-acp"
+    env: {}
+
+  opencode:
+    backend:
+      kind: acp-stdio
+    command: opencode
+    args:
+      - acp
+    env: {}
+
 profiles:
   worker-default:
     promptLanguage: en
