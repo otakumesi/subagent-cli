@@ -178,6 +178,49 @@ class CLIPhase1Tests(unittest.TestCase):
         self.assertEqual(payload["type"], "launcher.shown")
         self.assertEqual(payload["data"]["command"], "project-codex-acp")
 
+    def test_launcher_probe_supports_inline_command_tokens(self) -> None:
+        inline_config = self.root / "inline-config.json"
+        inline_config.write_text(
+            json.dumps(
+                {
+                    "launchers": {
+                        "codex": {
+                            "backend": {"kind": "acp-stdio"},
+                            "command": "sh -c",
+                            "args": ["echo probe-ok"],
+                            "env": {},
+                        }
+                    },
+                    "profiles": {
+                        "worker-default": {
+                            "promptLanguage": "en",
+                            "responseLanguage": "same_as_manager",
+                            "defaultPacks": ["repo-conventions"],
+                            "bootstrap": "You are a worker subagent.",
+                        }
+                    },
+                    "packs": {
+                        "repo-conventions": {
+                            "description": "Follow repo conventions",
+                            "prompt": "Keep changes small.",
+                        }
+                    },
+                    "defaults": {"launcher": "codex", "profile": "worker-default"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = self.invoke(
+            ["launcher", "probe", "codex", "--json"],
+            env={"SUBAGENT_CONFIG": str(inline_config)},
+        )
+        self.assertEqual(result.exit_code, 0)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["data"]["available"])
+        self.assertEqual(payload["data"]["effectiveCommand"], "sh")
+        self.assertEqual(payload["data"]["effectiveArgs"], ["-c", "echo probe-ok"])
+        self.assertTrue(payload["data"]["commandWasTokenized"])
+
     def test_worker_list_errors_when_workspace_root_cannot_be_resolved(self) -> None:
         env = {
             "SUBAGENT_CONFIG": str(self.config_path),

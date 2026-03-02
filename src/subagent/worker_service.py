@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
-from .config import SubagentConfig
+from .config import Launcher, SubagentConfig
 from .controller_service import read_env_handle, resolve_controller_id
 from .errors import SubagentError
+from .launcher_service import resolve_launcher_spec
 from .paths import resolve_workspace_path
 from .runtime_service import launch_worker_runtime, stop_worker_runtime
 from .state import WORKER_STATE_ERROR, StateStore
@@ -188,23 +188,30 @@ def start_worker(
                 message=f"Unsupported backend kind for runtime: {launcher_entry.backend_kind}",
                 details={"launcher": target_launcher, "backendKind": launcher_entry.backend_kind},
             )
-        if shutil.which(launcher_entry.command) is None and "/" not in launcher_entry.command:
+        resolved = resolve_launcher_spec(launcher_entry)
+        if not resolved.available:
             raise SubagentError(
                 code="BACKEND_UNAVAILABLE",
                 message=f"Launcher command not available: {launcher_entry.command}",
-                details={"launcher": target_launcher, "command": launcher_entry.command},
+                details={
+                    "launcher": target_launcher,
+                    "command": launcher_entry.command,
+                    "effectiveCommand": resolved.command,
+                    "effectiveArgs": resolved.args,
+                },
             )
-        if "/" in launcher_entry.command and not Path(launcher_entry.command).expanduser().exists():
-            raise SubagentError(
-                code="BACKEND_UNAVAILABLE",
-                message=f"Launcher command not available: {launcher_entry.command}",
-                details={"launcher": target_launcher, "command": launcher_entry.command},
-            )
+        runtime_launcher = Launcher(
+            name=launcher_entry.name,
+            backend_kind=launcher_entry.backend_kind,
+            command=resolved.command,
+            args=resolved.args,
+            env=dict(launcher_entry.env),
+        )
         try:
             launch_worker_runtime(
                 store,
                 worker_id=str(worker["worker_id"]),
-                launcher=launcher_entry,
+                launcher=runtime_launcher,
                 cwd=str(resolved_cwd),
             )
         except SubagentError as error:

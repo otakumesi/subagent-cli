@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -16,6 +15,7 @@ from typing import Any
 from .config import Launcher, SubagentConfig
 from .constants import RUNTIME_STARTUP_TIMEOUT_SECONDS
 from .errors import SubagentError
+from .launcher_service import resolve_launcher_spec
 from .state import StateStore
 
 
@@ -289,19 +289,26 @@ def restart_worker_runtime(
             message=f"Unsupported backend kind for runtime: {launcher.backend_kind}",
             details={"workerId": worker_id, "launcher": launcher_name, "backendKind": launcher.backend_kind},
         )
-    command = launcher.command
-    if shutil.which(command) is None and "/" not in command:
+    resolved = resolve_launcher_spec(launcher)
+    if not resolved.available:
         raise SubagentError(
             code="BACKEND_UNAVAILABLE",
-            message=f"Launcher command not available: {command}",
-            details={"workerId": worker_id, "launcher": launcher_name, "command": command},
+            message=f"Launcher command not available: {launcher.command}",
+            details={
+                "workerId": worker_id,
+                "launcher": launcher_name,
+                "command": launcher.command,
+                "effectiveCommand": resolved.command,
+                "effectiveArgs": resolved.args,
+            },
         )
-    if "/" in command and not Path(command).expanduser().exists():
-        raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
-            message=f"Launcher command not available: {command}",
-            details={"workerId": worker_id, "launcher": launcher_name, "command": command},
-        )
+    runtime_launcher = Launcher(
+        name=launcher.name,
+        backend_kind=launcher.backend_kind,
+        command=resolved.command,
+        args=resolved.args,
+        env=dict(launcher.env),
+    )
     worker_cwd = worker.get("cwd")
     if not isinstance(worker_cwd, str) or not worker_cwd:
         raise SubagentError(
@@ -312,7 +319,7 @@ def restart_worker_runtime(
     return launch_worker_runtime(
         store,
         worker_id=worker_id,
-        launcher=launcher,
+        launcher=runtime_launcher,
         cwd=worker_cwd,
         timeout_seconds=timeout_seconds,
     )
