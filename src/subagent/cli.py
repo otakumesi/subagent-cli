@@ -275,6 +275,58 @@ def _require_value(value: Any, *, name: str, json_output: bool) -> Any:
     return value
 
 
+def _read_worker_id_from_input(payload: dict[str, Any]) -> str | None:
+    worker_id = read_string(payload, "workerId")
+    worker_alias = read_string(payload, "worker")
+    if worker_id is not None and worker_alias is not None and worker_id != worker_alias:
+        raise SubagentError(
+            code="INVALID_INPUT",
+            message="`workerId` and `worker` must match when both are provided",
+        )
+    return worker_id or worker_alias
+
+
+_TEXT_SHELL_RISK_TOKENS: tuple[tuple[str, str], ...] = (
+    ("backticks", "`"),
+    ("commandSubstitution", "$("),
+    ("parameterExpansion", "${"),
+    ("pipeline", "|"),
+    ("commandSeparator", ";"),
+    ("andOperator", "&&"),
+    ("orOperator", "||"),
+    ("redirectOut", ">"),
+    ("redirectIn", "<"),
+)
+
+
+def _detect_text_shell_risks(text: str) -> list[str]:
+    risks: list[str] = []
+    for code, token in _TEXT_SHELL_RISK_TOKENS:
+        if token in text:
+            risks.append(code)
+    return risks
+
+
+def _shell_pitfall_warning(risks: list[str]) -> dict[str, Any]:
+    return {
+        "code": "TEXT_SHELL_PITFALL",
+        "message": (
+            "`--text` may be interpreted by your shell before subagent runs. "
+            "Prefer `--input -` with a quoted heredoc or `--input <json-file>`."
+        ),
+        "riskCodes": risks,
+    }
+
+
+def _emit_shell_pitfall_warning(warning: dict[str, Any]) -> None:
+    message = warning.get("message")
+    if isinstance(message, str) and message:
+        typer.echo(f"Warning: {message}", err=True)
+    risk_codes = warning.get("riskCodes")
+    if isinstance(risk_codes, list) and risk_codes:
+        typer.echo(f"Risk codes: {', '.join(str(item) for item in risk_codes)}", err=True)
+
+
 def _emit_simple_list(
     *,
     title: str,
@@ -760,7 +812,11 @@ def controller_release(
 def send(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
-    text: str | None = typer.Option(None, "--text", help="Instruction text"),
+    text: str | None = typer.Option(
+        None,
+        "--text",
+        help="Instruction text. Prefer `--input` for shell-safe multiline/special characters.",
+    ),
     blocks_json: str | None = typer.Option(
         None,
         "--blocks",
@@ -787,7 +843,17 @@ def send(
         min=0.0,
         help="Timeout for --wait in seconds. Set 0 for no timeout.",
     ),
-    input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
+    wait_no_progress_timeout_seconds: float = typer.Option(
+        0.0,
+        "--wait-no-progress-timeout-seconds",
+        min=0.0,
+        help="Fail --wait when no meaningful progress events occur for this many seconds. 0 disables.",
+    ),
+    input_path: str | None = typer.Option(
+        None,
+        "--input",
+        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+    ),
     debug_mode: bool = typer.Option(
         False,
         "--debug-mode/--no-debug-mode",
@@ -796,6 +862,7 @@ def send(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
+    text_from_flag = not _is_param_default(ctx, "text")
     try:
         input_payload = load_input_payload(input_path)
         reject_duplicates(
@@ -808,6 +875,7 @@ def send(
                 "wait_for_match": wait_for_match,
                 "wait_until": wait_until,
                 "wait_timeout_seconds": wait_timeout_seconds,
+                "wait_no_progress_timeout_seconds": wait_no_progress_timeout_seconds,
             },
             value_is_default={
                 "worker_id": _is_param_default(ctx, "worker_id"),
@@ -817,19 +885,24 @@ def send(
                 "wait_for_match": _is_param_default(ctx, "wait_for_match"),
                 "wait_until": _is_param_default(ctx, "wait_until"),
                 "wait_timeout_seconds": _is_param_default(ctx, "wait_timeout_seconds"),
+                "wait_no_progress_timeout_seconds": _is_param_default(
+                    ctx, "wait_no_progress_timeout_seconds"
+                ),
             },
             mapping={
                 "workerId": "worker_id",
+                "worker": "worker_id",
                 "text": "text",
                 "blocks": "blocks_json",
                 "debugMode": "debug_mode",
                 "wait": "wait_for_match",
                 "waitUntil": "wait_until",
                 "waitTimeoutSeconds": "wait_timeout_seconds",
+                "waitNoProgressTimeoutSeconds": "wait_no_progress_timeout_seconds",
             },
         )
         if input_payload is not None:
-            worker_id = read_string(input_payload, "workerId") or worker_id
+            worker_id = _read_worker_id_from_input(input_payload) or worker_id
             text = read_string(input_payload, "text") or text
             blocks = read_blocks(input_payload, "blocks")
             payload_debug_mode = read_bool(input_payload, "debugMode")
@@ -847,6 +920,17 @@ def send(
                         json_output=json_output,
                     )
                 wait_timeout_seconds = float(wait_timeout_value)
+            wait_no_progress_timeout_value = input_payload.get("waitNoProgressTimeoutSeconds")
+            if wait_no_progress_timeout_value is not None:
+                if not isinstance(wait_no_progress_timeout_value, (int, float)):
+                    emit_error_and_exit(
+                        SubagentError(
+                            code="INVALID_INPUT",
+                            message="`waitNoProgressTimeoutSeconds` must be a number",
+                        ),
+                        json_output=json_output,
+                    )
+                wait_no_progress_timeout_seconds = float(wait_no_progress_timeout_value)
         else:
             blocks = None
 
@@ -855,11 +939,25 @@ def send(
                 SubagentError(code="INVALID_INPUT", message="`waitTimeoutSeconds` must be >= 0"),
                 json_output=json_output,
             )
+        if wait_no_progress_timeout_seconds < 0:
+            emit_error_and_exit(
+                SubagentError(code="INVALID_INPUT", message="`waitNoProgressTimeoutSeconds` must be >= 0"),
+                json_output=json_output,
+            )
 
         worker_id = _require_value(worker_id, name="worker", json_output=json_output)
         text = _require_value(text, name="text", json_output=json_output)
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
+
+    warnings: list[dict[str, Any]] = []
+    if text_from_flag and isinstance(text, str):
+        shell_risks = _detect_text_shell_risks(text)
+        if shell_risks:
+            warning = _shell_pitfall_warning(shell_risks)
+            warnings.append(warning)
+            if not json_output:
+                _emit_shell_pitfall_warning(warning)
 
     store = _store(json_output=json_output)
     config = _load_config_or_exit(config_path, json_output=json_output)
@@ -885,6 +983,7 @@ def send(
                 until=wait_until,
                 from_event_id=cursor,
                 timeout_seconds=wait_timeout_seconds,
+                no_progress_timeout_seconds=wait_no_progress_timeout_seconds,
             )
             request_id = payload.get("requestId")
             if not isinstance(request_id, str):
@@ -897,6 +996,7 @@ def send(
             waited_payload = dict(payload)
             waited_payload["waitUntil"] = wait_until
             waited_payload["waitTimeoutSeconds"] = wait_timeout_seconds
+            waited_payload["waitNoProgressTimeoutSeconds"] = wait_no_progress_timeout_seconds
             waited_payload["matchedEvent"] = matched_event
             waited_payload["requestId"] = request_id if isinstance(request_id, str) else None
             assistant_messages = collect_assistant_messages(
@@ -911,6 +1011,8 @@ def send(
             current_worker = store.get_worker(worker_id)
             if current_worker is not None:
                 waited_payload["state"] = str(current_worker["state"])
+            if warnings:
+                waited_payload["warnings"] = warnings
             if json_output:
                 emit_json(ok_envelope("turn.waited", waited_payload))
             else:
@@ -923,6 +1025,9 @@ def send(
             return
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
+    if warnings:
+        payload = dict(payload)
+        payload["warnings"] = warnings
     if json_output:
         emit_json(ok_envelope("turn.accepted", payload))
     else:
@@ -1019,7 +1124,17 @@ def wait(
         min=0.0,
         help="Timeout in seconds. Set 0 for no timeout.",
     ),
-    input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
+    no_progress_timeout_seconds: float = typer.Option(
+        0.0,
+        "--no-progress-timeout-seconds",
+        min=0.0,
+        help="Fail when no meaningful progress events occur for this many seconds. 0 disables.",
+    ),
+    input_path: str | None = typer.Option(
+        None,
+        "--input",
+        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     try:
@@ -1031,22 +1146,26 @@ def wait(
                 "until": until,
                 "from_event_id": from_event_id,
                 "timeout_seconds": timeout_seconds,
+                "no_progress_timeout_seconds": no_progress_timeout_seconds,
             },
             value_is_default={
                 "worker_id": _is_param_default(ctx, "worker_id"),
                 "until": _is_param_default(ctx, "until"),
                 "from_event_id": _is_param_default(ctx, "from_event_id"),
                 "timeout_seconds": _is_param_default(ctx, "timeout_seconds"),
+                "no_progress_timeout_seconds": _is_param_default(ctx, "no_progress_timeout_seconds"),
             },
             mapping={
                 "workerId": "worker_id",
+                "worker": "worker_id",
                 "until": "until",
                 "fromEventId": "from_event_id",
                 "timeoutSeconds": "timeout_seconds",
+                "noProgressTimeoutSeconds": "no_progress_timeout_seconds",
             },
         )
         if input_payload is not None:
-            worker_id = read_string(input_payload, "workerId") or worker_id
+            worker_id = _read_worker_id_from_input(input_payload) or worker_id
             until = read_string(input_payload, "until") or until
             from_event_id = read_string(input_payload, "fromEventId") or from_event_id
             timeout_value = input_payload.get("timeoutSeconds")
@@ -1057,9 +1176,25 @@ def wait(
                         json_output=json_output,
                     )
                 timeout_seconds = float(timeout_value)
+            no_progress_timeout_value = input_payload.get("noProgressTimeoutSeconds")
+            if no_progress_timeout_value is not None:
+                if not isinstance(no_progress_timeout_value, (int, float)):
+                    emit_error_and_exit(
+                        SubagentError(
+                            code="INVALID_INPUT",
+                            message="`noProgressTimeoutSeconds` must be a number",
+                        ),
+                        json_output=json_output,
+                    )
+                no_progress_timeout_seconds = float(no_progress_timeout_value)
             if timeout_seconds < 0:
                 emit_error_and_exit(
                     SubagentError(code="INVALID_INPUT", message="`timeoutSeconds` must be >= 0"),
+                    json_output=json_output,
+                )
+            if no_progress_timeout_seconds < 0:
+                emit_error_and_exit(
+                    SubagentError(code="INVALID_INPUT", message="`noProgressTimeoutSeconds` must be >= 0"),
                     json_output=json_output,
                 )
 
@@ -1075,6 +1210,7 @@ def wait(
             until=until,
             from_event_id=from_event_id,
             timeout_seconds=timeout_seconds,
+            no_progress_timeout_seconds=no_progress_timeout_seconds,
         )
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
@@ -1093,7 +1229,11 @@ def approve(
     option_id: str | None = typer.Option(None, "--option-id", help="Approval option id"),
     alias: str | None = typer.Option(None, "--alias", help="Approval option alias"),
     note: str | None = typer.Option(None, "--note", help="Decision note"),
-    input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
+    input_path: str | None = typer.Option(
+        None,
+        "--input",
+        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
@@ -1119,6 +1259,7 @@ def approve(
             },
             mapping={
                 "workerId": "worker_id",
+                "worker": "worker_id",
                 "requestId": "request_id",
                 "decision": "decision",
                 "optionId": "option_id",
@@ -1127,7 +1268,7 @@ def approve(
             },
         )
         if input_payload is not None:
-            worker_id = read_string(input_payload, "workerId") or worker_id
+            worker_id = _read_worker_id_from_input(input_payload) or worker_id
             request_id = read_string(input_payload, "requestId") or request_id
             decision = read_string(input_payload, "decision") or decision
             option_id = read_string(input_payload, "optionId") or option_id
@@ -1334,11 +1475,38 @@ def worker_show(
 def worker_inspect(
     worker_id: str = typer.Argument(..., help="Worker ID"),
     events_limit: int = typer.Option(20, "--events-limit", min=1, max=200, help="Number of recent events"),
+    tail: int | None = typer.Option(
+        None,
+        "--tail",
+        min=1,
+        max=200,
+        help="Return latest N events (overrides --events-limit).",
+    ),
+    since: str | None = typer.Option(
+        None,
+        "--since",
+        help="Only include events at/after this ISO8601 timestamp.",
+    ),
+    turn_id: str | None = typer.Option(None, "--turn-id", help="Filter events by turn ID."),
+    event_types: list[str] = typer.Option(
+        [],
+        "--event-type",
+        help="Filter events by type (repeatable).",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     store = _store(json_output=json_output)
+    effective_limit = tail if tail is not None else events_limit
+    effective_event_types = event_types or None
     try:
-        payload = inspect_worker(store, worker_id, events_limit=events_limit)
+        payload = inspect_worker(
+            store,
+            worker_id,
+            events_limit=effective_limit,
+            since=since,
+            turn_id=turn_id,
+            event_types=effective_event_types,
+        )
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
     if json_output:

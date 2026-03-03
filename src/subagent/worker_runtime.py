@@ -484,6 +484,8 @@ class WorkerRuntime:
                     data={"turnId": turn_id, "reason": cancel_reason},
                     raw={"runtime": "acp-stdio", "phase": "turn.canceled"},
                 )
+                with self._cv:
+                    self._active_turn_id = None
                 self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_IDLE)
                 result = {
                     "workerId": self.worker_id,
@@ -504,6 +506,8 @@ class WorkerRuntime:
                     },
                     raw={"runtime": "acp-stdio", "phase": "turn.completed"},
                 )
+                with self._cv:
+                    self._active_turn_id = None
                 self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_IDLE)
                 result = {
                     "workerId": self.worker_id,
@@ -513,7 +517,6 @@ class WorkerRuntime:
                     "stopReason": stop_reason,
                 }
             with self._cv:
-                self._active_turn_id = None
                 self._turn_result = result
                 self._cv.notify_all()
         except SubagentError as error:
@@ -524,13 +527,14 @@ class WorkerRuntime:
                 data={"turnId": turn_id, "error": error.to_dict()},
                 raw={"runtime": "acp-stdio", "phase": "turn.failed"},
             )
+            with self._cv:
+                self._active_turn_id = None
             self.store.update_worker_state(
                 self.worker_id,
                 next_state=WORKER_STATE_IDLE,
                 last_error=error.message,
             )
             with self._cv:
-                self._active_turn_id = None
                 self._turn_error = error
                 self._cv.notify_all()
 

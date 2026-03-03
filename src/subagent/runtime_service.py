@@ -19,6 +19,34 @@ from .launcher_service import resolve_launcher_spec
 from .state import StateStore
 
 
+def _classify_backend_unavailable(error: str | None) -> tuple[str, str]:
+    lowered = (error or "").lower()
+    if any(token in lowered for token in ("operation not permitted", "permission denied", "eacces", "eperm")):
+        return (
+            "permission",
+            "Likely blocked by sandbox/socket permissions. Retry the same command with outside-sandbox execution approval.",
+        )
+    if "address already in use" in lowered:
+        return (
+            "socket",
+            "Runtime socket appears busy. Stop stale workers and retry.",
+        )
+    if any(token in lowered for token in ("timed out", "timeout")):
+        return (
+            "timeout",
+            "Runtime startup timed out. Check runtime logs and launcher health, then retry.",
+        )
+    if any(token in lowered for token in ("no such file", "not found", "executable file")):
+        return (
+            "launcher",
+            "Launcher command may be missing. Run `subagent launcher probe <launcher> --json` and verify PATH.",
+        )
+    return (
+        "unknown",
+        "Inspect runtime logs and retry. In sandboxed environments, outside-sandbox execution may be required.",
+    )
+
+
 def runtime_socket_path(store: StateStore, worker_id: str) -> Path:
     digest = hashlib.sha1(f"{store.db_path}:{worker_id}".encode("utf-8")).hexdigest()[:16]
     return Path("/tmp") / f"subagent-rt-{digest}.sock"
@@ -61,6 +89,11 @@ def _send_socket_request(
                 "socketPath": str(socket_path),
                 "method": method,
                 "error": str(exc),
+                "reasonCategory": "socket",
+                "recommendedAction": (
+                    "Worker runtime endpoint is unreachable. Retry once; "
+                    "if it keeps failing, restart the worker runtime."
+                ),
             },
         ) from exc
     raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
@@ -242,6 +275,7 @@ def launch_worker_runtime(
         except Exception:
             pass
     store.clear_worker_runtime_endpoint(worker_id)
+    reason_category, recommended_action = _classify_backend_unavailable(last_error)
     raise SubagentError(
         code="BACKEND_UNAVAILABLE",
         message="Failed to start worker runtime.",
@@ -251,6 +285,8 @@ def launch_worker_runtime(
             "socketPath": str(socket_path),
             "logPath": str(log_path),
             "error": last_error,
+            "reasonCategory": reason_category,
+            "recommendedAction": recommended_action,
         },
     )
 
@@ -274,7 +310,11 @@ def restart_worker_runtime(
         raise SubagentError(
             code="BACKEND_UNAVAILABLE",
             message="Worker launcher is not set.",
-            details={"workerId": worker_id},
+            details={
+                "workerId": worker_id,
+                "reasonCategory": "launcher",
+                "recommendedAction": "Worker metadata is incomplete. Restart worker from manager.",
+            },
         )
     launcher = config.launchers.get(launcher_name)
     if launcher is None:
@@ -287,7 +327,13 @@ def restart_worker_runtime(
         raise SubagentError(
             code="BACKEND_UNAVAILABLE",
             message=f"Unsupported backend kind for runtime: {launcher.backend_kind}",
-            details={"workerId": worker_id, "launcher": launcher_name, "backendKind": launcher.backend_kind},
+            details={
+                "workerId": worker_id,
+                "launcher": launcher_name,
+                "backendKind": launcher.backend_kind,
+                "reasonCategory": "launcher",
+                "recommendedAction": "Use an `acp-stdio` launcher for runtime-backed workers.",
+            },
         )
     resolved = resolve_launcher_spec(launcher)
     if not resolved.available:
@@ -300,6 +346,11 @@ def restart_worker_runtime(
                 "command": launcher.command,
                 "effectiveCommand": resolved.command,
                 "effectiveArgs": resolved.args,
+                "reasonCategory": "launcher",
+                "recommendedAction": (
+                    "Install/fix the launcher command and run "
+                    f"`subagent launcher probe {launcher_name} --json` before retrying."
+                ),
             },
         )
     runtime_launcher = Launcher(
@@ -314,7 +365,11 @@ def restart_worker_runtime(
         raise SubagentError(
             code="BACKEND_UNAVAILABLE",
             message="Worker cwd is not available.",
-            details={"workerId": worker_id},
+            details={
+                "workerId": worker_id,
+                "reasonCategory": "worker",
+                "recommendedAction": "Worker metadata is incomplete. Restart worker from manager.",
+            },
         )
     return launch_worker_runtime(
         store,

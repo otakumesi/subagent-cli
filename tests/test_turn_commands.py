@@ -133,6 +133,8 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(send_result.exit_code, 1)
         payload = json.loads(send_result.stdout)
         self.assertEqual(payload["error"]["code"], "BACKEND_UNAVAILABLE")
+        details = payload["error"]["details"]
+        self.assertIn("recommendedAction", details)
 
     def test_send_wait_and_watch_ndjson(self) -> None:
         worker_id = self.start_worker()
@@ -213,6 +215,97 @@ class TurnCommandTests(unittest.TestCase):
             send_payload["data"]["assistantText"],
         )
 
+    def test_send_json_warns_when_text_flag_contains_shell_pitfalls(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "Use `echo hello` and $(uname) safely",
+                "--debug-mode",
+                "--no-wait",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        payload = json.loads(send_result.stdout)
+        self.assertEqual(payload["type"], "turn.accepted")
+        warnings = payload["data"].get("warnings")
+        self.assertIsInstance(warnings, list)
+        assert isinstance(warnings, list)
+        self.assertGreaterEqual(len(warnings), 1)
+        first = warnings[0]
+        self.assertEqual(first.get("code"), "TEXT_SHELL_PITFALL")
+        risk_codes = first.get("riskCodes")
+        self.assertIsInstance(risk_codes, list)
+        assert isinstance(risk_codes, list)
+        self.assertIn("backticks", risk_codes)
+        self.assertIn("commandSubstitution", risk_codes)
+
+    def test_send_input_json_avoids_shell_pitfall_warning(self) -> None:
+        worker_id = self.start_worker()
+        payload_path = self.root / "send-input.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "workerId": worker_id,
+                    "text": "Use `echo hello` and $(uname) safely",
+                    "wait": False,
+                    "debugMode": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        send_result = self.invoke(["send", "--input", str(payload_path), "--json"])
+        self.assertEqual(send_result.exit_code, 0)
+        payload = json.loads(send_result.stdout)
+        self.assertEqual(payload["type"], "turn.accepted")
+        self.assertNotIn("warnings", payload["data"])
+
+    def test_send_input_accepts_worker_alias(self) -> None:
+        worker_id = self.start_worker()
+        payload_path = self.root / "send-input-worker-alias.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "worker": worker_id,
+                    "text": "worker alias support",
+                    "wait": False,
+                    "debugMode": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        send_result = self.invoke(["send", "--input", str(payload_path), "--json"])
+        self.assertEqual(send_result.exit_code, 0)
+        payload = json.loads(send_result.stdout)
+        self.assertEqual(payload["type"], "turn.accepted")
+        self.assertEqual(payload["data"]["workerId"], worker_id)
+
+    def test_send_input_rejects_conflicting_worker_fields(self) -> None:
+        worker_id = self.start_worker()
+        payload_path = self.root / "send-input-conflicting-worker-fields.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "workerId": worker_id,
+                    "worker": "w_conflict",
+                    "text": "worker mismatch should fail",
+                    "wait": False,
+                    "debugMode": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        send_result = self.invoke(["send", "--input", str(payload_path), "--json"])
+        self.assertEqual(send_result.exit_code, 1)
+        payload = json.loads(send_result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "INVALID_INPUT")
+        self.assertIn("must match", payload["error"]["message"])
+
     def test_send_with_wait_returns_matched_event(self) -> None:
         worker_id = self.start_worker()
         send_result = self.invoke(
@@ -284,6 +377,35 @@ class TurnCommandTests(unittest.TestCase):
                 "--json",
             ]
         )
+        self.assertEqual(wait_result.exit_code, 0)
+        wait_payload = json.loads(wait_result.stdout)
+        self.assertEqual(wait_payload["type"], "event.matched")
+        self.assertEqual(wait_payload["data"]["type"], "approval.requested")
+
+    def test_wait_input_accepts_worker_alias(self) -> None:
+        worker_id = self.start_worker()
+        self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "needs wait alias",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        payload_path = self.root / "wait-input-worker-alias.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "worker": worker_id,
+                    "timeoutSeconds": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        wait_result = self.invoke(["wait", "--input", str(payload_path), "--json"])
         self.assertEqual(wait_result.exit_code, 0)
         wait_payload = json.loads(wait_result.stdout)
         self.assertEqual(wait_payload["type"], "event.matched")
@@ -422,6 +544,41 @@ class TurnCommandTests(unittest.TestCase):
         option_payload = json.loads(option_approve.stdout)
         self.assertEqual(option_payload["data"]["optionId"], "deny")
 
+    def test_approve_input_accepts_worker_alias(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "approval via input alias",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        request_id = str(send_payload["data"]["requestId"])
+
+        payload_path = self.root / "approve-input-worker-alias.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "worker": worker_id,
+                    "requestId": request_id,
+                    "alias": "allow",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        approve_result = self.invoke(["approve", "--input", str(payload_path), "--json"])
+        self.assertEqual(approve_result.exit_code, 0)
+        approve_payload = json.loads(approve_result.stdout)
+        self.assertEqual(approve_payload["type"], "approval.decided")
+        self.assertEqual(approve_payload["data"]["decision"], "allow")
+
     def test_cancel_turn_from_waiting_approval(self) -> None:
         worker_id = self.start_worker()
         send_result = self.invoke(
@@ -481,3 +638,29 @@ class TurnCommandTests(unittest.TestCase):
         details = payload["error"]["details"]
         self.assertEqual(details["workerState"], "idle")
         self.assertIsNone(details["latestEvent"])
+
+    def test_wait_no_progress_timeout_returns_diagnostic_error(self) -> None:
+        worker_id = self.start_worker()
+        wait_result = self.invoke(
+            [
+                "wait",
+                "--worker",
+                worker_id,
+                "--until",
+                "turn.completed",
+                "--timeout-seconds",
+                "1",
+                "--no-progress-timeout-seconds",
+                "0.1",
+                "--json",
+            ]
+        )
+        self.assertEqual(wait_result.exit_code, 1)
+        payload = json.loads(wait_result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "WAIT_NO_PROGRESS")
+        details = payload["error"]["details"]
+        self.assertEqual(details["workerState"], "idle")
+        self.assertEqual(details["noProgressTimeoutSeconds"], 0.1)
+        self.assertIsNone(details["latestEvent"])
+        self.assertIsNone(details["lastMeaningfulEvent"])

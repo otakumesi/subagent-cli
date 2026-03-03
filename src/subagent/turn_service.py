@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import time
 import uuid
 from typing import Any
@@ -39,6 +40,13 @@ WAIT_UNTIL_ALIASES: dict[str, set[str]] = {
 }
 
 
+MEANINGFUL_EVENT_TYPES: set[str] = WAIT_EVENT_TYPES - {"progress.message", "progress.update"}
+TERMINAL_TURN_EVENT_TYPES: set[str] = {"turn.completed", "turn.failed", "turn.canceled"}
+CANCEL_RACE_RECENT_EVENT_SECONDS = 2.0
+CANCEL_RACE_RECOVERY_WAIT_SECONDS = 0.4
+CANCEL_RACE_RECOVERY_POLL_SECONDS = 0.05
+
+
 def _normalize_event(event: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schemaVersion": "v1",
@@ -54,6 +62,71 @@ def _normalize_event(event: dict[str, Any], *, include_raw: bool = False) -> dic
     if include_raw and event.get("raw") is not None:
         payload["raw"] = event["raw"]
     return payload
+
+
+def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "eventId": event["event_id"],
+        "type": event["event_type"],
+        "turnId": event.get("turn_id"),
+        "ts": event["ts"],
+    }
+
+
+def _event_is_recent(event: dict[str, Any], *, seconds: float) -> bool:
+    ts_raw = event.get("ts")
+    if not isinstance(ts_raw, str) or not ts_raw:
+        return False
+    try:
+        ts = datetime.fromisoformat(ts_raw)
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    age_seconds = (datetime.now(tz=UTC) - ts).total_seconds()
+    return age_seconds <= seconds
+
+
+def _recover_cancel_race(
+    store: StateStore,
+    *,
+    worker_id: str,
+    expected_turn_id: str | None,
+    wait_seconds: float,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while True:
+        latest = store.get_latest_worker_event(worker_id)
+        if latest is not None:
+            latest_type = str(latest["event_type"])
+            latest_turn_id = latest.get("turn_id")
+            matches_turn = expected_turn_id is None or latest_turn_id == expected_turn_id
+            if (
+                latest_type in TERMINAL_TURN_EVENT_TYPES
+                and matches_turn
+                and _event_is_recent(latest, seconds=CANCEL_RACE_RECENT_EVENT_SECONDS)
+            ):
+                worker = store.get_worker(worker_id)
+                state = str(worker["state"]) if worker is not None else WORKER_STATE_IDLE
+                if worker is not None and state != WORKER_STATE_IDLE:
+                    # Runtime already produced a terminal event; force DB state to idle for consistency.
+                    worker = store.update_worker_state(
+                        worker_id,
+                        next_state=WORKER_STATE_IDLE,
+                        allow_any_transition=True,
+                    )
+                    state = str(worker["state"])
+                return {
+                    "workerId": worker_id,
+                    "state": state,
+                    "eventId": latest["event_id"],
+                    "turnId": latest_turn_id,
+                    "alreadyTerminal": True,
+                    "terminalEventType": latest_type,
+                }
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(CANCEL_RACE_RECOVERY_POLL_SECONDS)
 
 
 def _ensure_worker_sendable(worker: dict[str, Any]) -> None:
@@ -249,6 +322,9 @@ def _send_via_runtime(
         blocks=blocks,
         runtime_kind="acp-stdio",
     )
+    runtime_result: dict[str, Any] | None = None
+    attempted_busy_resync = False
+    send_error: SubagentError | None = None
     try:
         runtime_result = _runtime_request_with_restart(
             store,
@@ -263,6 +339,31 @@ def _send_via_runtime(
             timeout_seconds=3600.0,
         )
     except SubagentError as error:
+        send_error = error
+        if error.code == "WORKER_BUSY":
+            # Runtime and DB state can briefly diverge around turn-finalization boundaries.
+            # Retry once after a short pause to allow the runtime to settle.
+            attempted_busy_resync = True
+            time.sleep(0.15)
+            try:
+                runtime_result = _runtime_request_with_restart(
+                    store,
+                    config=config,
+                    worker_id=worker_id,
+                    method="start_turn",
+                    params={
+                        "turnId": turn_id,
+                        "text": text,
+                        "blocks": blocks or [],
+                    },
+                    timeout_seconds=3600.0,
+                )
+                send_error = None
+            except SubagentError as retry_error:
+                send_error = retry_error
+
+    if send_error is not None:
+        error = send_error
         store.append_worker_event(
             worker_id,
             event_type="turn.failed",
@@ -275,7 +376,21 @@ def _send_via_runtime(
             next_state=WORKER_STATE_IDLE,
             last_error=error.message,
         )
-        raise
+        if attempted_busy_resync and error.code == "WORKER_BUSY":
+            details = dict(error.details)
+            details["resyncRetried"] = True
+            details["recommendedAction"] = (
+                "Retry once. If this repeats, restart the worker runtime "
+                "(`subagent worker stop <id> --force` then `subagent worker start ...`)."
+            )
+            raise SubagentError(
+                code="WORKER_BUSY",
+                message="worker still has an active runtime turn after resync retry",
+                retryable=True,
+                details=details,
+            ) from error
+        raise error
+    assert runtime_result is not None
 
     state = runtime_result.get("state")
     if state == WORKER_STATE_WAITING_APPROVAL:
@@ -432,6 +547,7 @@ def wait_for_event(
     until: str,
     from_event_id: str | None = None,
     timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
+    no_progress_timeout_seconds: float = 0.0,
 ) -> dict[str, Any]:
     if timeout_seconds < 0:
         raise SubagentError(
@@ -439,17 +555,50 @@ def wait_for_event(
             message="`timeoutSeconds` must be >= 0",
             details={"timeoutSeconds": timeout_seconds},
         )
+    if no_progress_timeout_seconds < 0:
+        raise SubagentError(
+            code="INVALID_ARGUMENT",
+            message="`noProgressTimeoutSeconds` must be >= 0",
+            details={"noProgressTimeoutSeconds": no_progress_timeout_seconds},
+        )
     until_set = _parse_until_set(until)
     deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
     cursor = from_event_id
+    last_meaningful_at = time.monotonic()
+    last_meaningful_event: dict[str, Any] | None = None
     while True:
         events = store.list_worker_events(worker_id, from_event_id=cursor)
         if events:
+            poll_now = time.monotonic()
             for event in events:
                 event_type = str(event["event_type"])
                 if not until_set or event_type in until_set:
                     return _normalize_event(event)
+                if event_type in MEANINGFUL_EVENT_TYPES:
+                    last_meaningful_at = poll_now
+                    last_meaningful_event = _event_summary(event)
             cursor = str(events[-1]["event_id"])
+        if no_progress_timeout_seconds > 0 and time.monotonic() - last_meaningful_at >= no_progress_timeout_seconds:
+            worker = store.get_worker(worker_id)
+            worker_state = str(worker.get("state")) if worker is not None else "unknown"
+            latest_event_payload: dict[str, Any] | None = None
+            if worker is not None:
+                latest_event = store.get_latest_worker_event(worker_id)
+                if latest_event is not None:
+                    latest_event_payload = _event_summary(latest_event)
+            raise SubagentError(
+                code="WAIT_NO_PROGRESS",
+                message=f"No meaningful progress matched `{until}` before no-progress timeout",
+                retryable=True,
+                details={
+                    "workerId": worker_id,
+                    "until": until,
+                    "noProgressTimeoutSeconds": no_progress_timeout_seconds,
+                    "workerState": worker_state,
+                    "latestEvent": latest_event_payload,
+                    "lastMeaningfulEvent": last_meaningful_event,
+                },
+            )
         if deadline is not None and time.monotonic() >= deadline:
             break
         time.sleep(0.05)
@@ -459,12 +608,7 @@ def wait_for_event(
     if worker is not None:
         latest_event = store.get_latest_worker_event(worker_id)
         if latest_event is not None:
-            latest_event_payload = {
-                "eventId": latest_event["event_id"],
-                "type": latest_event["event_type"],
-                "turnId": latest_event.get("turn_id"),
-                "ts": latest_event["ts"],
-            }
+            latest_event_payload = _event_summary(latest_event)
     raise SubagentError(
         code="WAIT_TIMEOUT",
         message=f"No event matched `{until}` before timeout",
@@ -473,8 +617,10 @@ def wait_for_event(
             "workerId": worker_id,
             "until": until,
             "timeoutSeconds": timeout_seconds,
+            "noProgressTimeoutSeconds": no_progress_timeout_seconds,
             "workerState": worker_state,
             "latestEvent": latest_event_payload,
+            "lastMeaningfulEvent": last_meaningful_event,
         },
     )
 
@@ -541,23 +687,50 @@ def cancel_turn(
             details={"workerId": worker_id},
         )
     state = str(worker["state"])
+    active_turn_id_raw = worker.get("active_turn_id")
+    active_turn_id = str(active_turn_id_raw) if isinstance(active_turn_id_raw, str) else None
     if state not in {WORKER_STATE_RUNNING, WORKER_STATE_WAITING_APPROVAL}:
+        recovered = _recover_cancel_race(
+            store,
+            worker_id=worker_id,
+            expected_turn_id=active_turn_id,
+            wait_seconds=0.0,
+        )
+        if recovered is not None:
+            return recovered
+        latest_event = store.get_latest_worker_event(worker_id)
         raise SubagentError(
             code="WORKER_NOT_RUNNING",
             message="worker has no active turn to cancel",
-            details={"workerId": worker_id, "state": state},
+            details={
+                "workerId": worker_id,
+                "state": state,
+                "latestEvent": _event_summary(latest_event) if latest_event is not None else None,
+            },
         )
     runtime_socket = worker.get("runtime_socket")
     if isinstance(runtime_socket, str) and runtime_socket:
-        return _runtime_request_with_restart(
-            store,
-            config=config,
-            worker_id=worker_id,
-            method="cancel_turn",
-            params={"reason": reason or "canceled by manager"},
-            timeout_seconds=120.0,
-        )
-    turn_id = worker.get("active_turn_id")
+        try:
+            return _runtime_request_with_restart(
+                store,
+                config=config,
+                worker_id=worker_id,
+                method="cancel_turn",
+                params={"reason": reason or "canceled by manager"},
+                timeout_seconds=120.0,
+            )
+        except SubagentError as error:
+            if error.code == "WORKER_NOT_RUNNING":
+                recovered = _recover_cancel_race(
+                    store,
+                    worker_id=worker_id,
+                    expected_turn_id=active_turn_id,
+                    wait_seconds=CANCEL_RACE_RECOVERY_WAIT_SECONDS,
+                )
+                if recovered is not None:
+                    return recovered
+            raise
+    turn_id = active_turn_id
     store.update_worker_state(worker_id, next_state="canceling")
     canceled_event = store.append_worker_event(
         worker_id,

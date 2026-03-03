@@ -38,4 +38,12 @@ def emit_error_and_exit(error: SubagentError, json_output: bool = False) -> NoRe
         emit_json(error_envelope(error))
     else:
         typer.echo(f"{error.code}: {error.message}", err=True)
+        details = error.details
+        if isinstance(details, dict):
+            recommended_action = details.get("recommendedAction")
+            if isinstance(recommended_action, str) and recommended_action:
+                typer.echo(f"Hint: {recommended_action}", err=True)
+            recommended_command = details.get("recommendedCommand")
+            if isinstance(recommended_command, str) and recommended_command:
+                typer.echo(f"Try: {recommended_command}", err=True)
     raise typer.Exit(code=1)

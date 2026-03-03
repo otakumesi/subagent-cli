@@ -268,6 +268,31 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         worker_payload = json.loads(shown.stdout)
         self.assertIsNone(worker_payload["data"]["runtimeSocket"])
 
+    def test_cancel_recovers_when_runtime_already_finished_but_state_is_stale_running(self) -> None:
+        worker_id = self.start_worker()
+        sent = self.invoke(["send", "--worker", worker_id, "--text", "quick completion", "--json"])
+        self.assertEqual(sent.exit_code, 0)
+        sent_payload = json.loads(sent.stdout)
+        self.assertEqual(sent_payload["type"], "turn.waited")
+        self.assertEqual(sent_payload["data"]["matchedEvent"]["type"], "turn.completed")
+
+        store = StateStore(self.state_dir / "state.db")
+        store.bootstrap()
+        store.update_worker_state(worker_id, next_state="running")
+
+        cancel = self.invoke(["cancel", "--worker", worker_id, "--reason", "late cancel", "--json"])
+        self.assertEqual(cancel.exit_code, 0)
+        cancel_payload = json.loads(cancel.stdout)
+        self.assertEqual(cancel_payload["type"], "turn.canceled")
+        self.assertEqual(cancel_payload["data"]["state"], "idle")
+        self.assertTrue(cancel_payload["data"]["alreadyTerminal"])
+        self.assertEqual(cancel_payload["data"]["terminalEventType"], "turn.completed")
+
+        shown = self.invoke(["worker", "show", worker_id, "--json"])
+        self.assertEqual(shown.exit_code, 0)
+        shown_payload = json.loads(shown.stdout)
+        self.assertEqual(shown_payload["data"]["state"], "idle")
+
     def test_strict_mode_errors_when_backend_is_unavailable(self) -> None:
         broken_config_path = self.root / "broken-config.json"
         broken = {

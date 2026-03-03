@@ -809,6 +809,10 @@ class StateStore:
         *,
         from_event_id: str | None = None,
         limit: int | None = None,
+        since: str | None = None,
+        turn_id: str | None = None,
+        event_types: list[str] | None = None,
+        tail: bool = False,
     ) -> list[dict[str, Any]]:
         worker = self.get_worker(worker_id)
         if worker is None:
@@ -823,14 +827,28 @@ class StateStore:
                 worker_id=worker_id,
                 from_event_id=from_event_id,
             )
-            query = (
-                "SELECT * FROM worker_events WHERE worker_id = ? AND event_seq > ? "
-                "ORDER BY event_seq ASC"
-            )
+            base_query = "SELECT * FROM worker_events WHERE worker_id = ? AND event_seq > ?"
             params: list[Any] = [worker_id, cursor_seq]
-            if limit is not None:
-                query += " LIMIT ?"
+            if since is not None:
+                base_query += " AND ts >= ?"
+                params.append(since)
+            if turn_id is not None:
+                base_query += " AND turn_id = ?"
+                params.append(turn_id)
+            if event_types:
+                normalized_types = [value for value in event_types if isinstance(value, str) and value]
+                if normalized_types:
+                    placeholders = ",".join("?" for _ in normalized_types)
+                    base_query += f" AND event_type IN ({placeholders})"
+                    params.extend(normalized_types)
+            if limit is not None and tail:
+                query = f"SELECT * FROM ({base_query} ORDER BY event_seq DESC LIMIT ?) ORDER BY event_seq ASC"
                 params.append(limit)
+            else:
+                query = f"{base_query} ORDER BY event_seq ASC"
+                if limit is not None:
+                    query += " LIMIT ?"
+                    params.append(limit)
             rows = conn.execute(query, tuple(params)).fetchall()
         events = [_deserialize_event_row(_row_to_dict(row)) for row in rows]
         return [event for event in events if event is not None]

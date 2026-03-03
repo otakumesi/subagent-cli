@@ -186,7 +186,12 @@ def start_worker(
             raise SubagentError(
                 code="BACKEND_UNAVAILABLE",
                 message=f"Unsupported backend kind for runtime: {launcher_entry.backend_kind}",
-                details={"launcher": target_launcher, "backendKind": launcher_entry.backend_kind},
+                details={
+                    "launcher": target_launcher,
+                    "backendKind": launcher_entry.backend_kind,
+                    "reasonCategory": "launcher",
+                    "recommendedAction": "Use an `acp-stdio` launcher for worker runtime.",
+                },
             )
         resolved = resolve_launcher_spec(launcher_entry)
         if not resolved.available:
@@ -198,6 +203,11 @@ def start_worker(
                     "command": launcher_entry.command,
                     "effectiveCommand": resolved.command,
                     "effectiveArgs": resolved.args,
+                    "reasonCategory": "launcher",
+                    "recommendedAction": (
+                        "Install/fix the launcher command and run "
+                        f"`subagent launcher probe {target_launcher} --json` before retrying."
+                    ),
                 },
             )
         runtime_launcher = Launcher(
@@ -318,13 +328,28 @@ def stop_worker(store: StateStore, worker_id: str, *, force: bool = False) -> di
     }
 
 
-def inspect_worker(store: StateStore, worker_id: str, *, events_limit: int = 20) -> dict[str, Any]:
+def inspect_worker(
+    store: StateStore,
+    worker_id: str,
+    *,
+    events_limit: int = 20,
+    since: str | None = None,
+    turn_id: str | None = None,
+    event_types: list[str] | None = None,
+) -> dict[str, Any]:
     worker = show_worker(store, worker_id)
     row = store.get_worker(worker_id)
     assert row is not None
     pending_approvals = store.list_pending_approval_requests(worker_id)
     latest_handoff = store.get_latest_handoff_snapshot(worker_id)
-    events = store.list_worker_events(worker_id, limit=events_limit)
+    events = store.list_worker_events(
+        worker_id,
+        limit=events_limit,
+        since=since,
+        turn_id=turn_id,
+        event_types=event_types,
+        tail=True,
+    )
     event_items = [
         {
             "eventId": event["event_id"],
