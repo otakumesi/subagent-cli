@@ -95,6 +95,9 @@ class PromptAndContractTests(unittest.TestCase):
         self.assertIn("subagent controller init", manager_prompt)
         self.assertIn("subagent send --worker", manager_prompt)
         self.assertIn("--no-wait", manager_prompt)
+        self.assertIn("--wait-no-progress-timeout-seconds", manager_prompt)
+        self.assertIn("quoted heredoc", manager_prompt)
+        self.assertIn("workerId", manager_prompt)
 
         worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
         self.assertEqual(worker.exit_code, 0)
@@ -127,6 +130,73 @@ class PromptAndContractTests(unittest.TestCase):
         self.assertEqual(inspect_payload["type"], "worker.inspected")
         self.assertGreaterEqual(len(inspect_payload["data"]["pendingApprovals"]), 1)
         self.assertGreaterEqual(len(inspect_payload["data"]["events"]), 1)
+
+    def test_worker_inspect_supports_filters_and_tail(self) -> None:
+        worker_id = self.start_worker()
+        first_send = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "first filtered turn",
+                "--debug-mode",
+                "--no-wait",
+                "--json",
+            ]
+        )
+        self.assertEqual(first_send.exit_code, 0)
+        first_payload = json.loads(first_send.stdout)
+        first_turn_id = str(first_payload["data"]["turnId"])
+
+        second_send = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "second turn",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        self.assertEqual(second_send.exit_code, 0)
+
+        filtered = self.invoke(
+            [
+                "worker",
+                "inspect",
+                worker_id,
+                "--turn-id",
+                first_turn_id,
+                "--event-type",
+                "turn.completed",
+                "--tail",
+                "5",
+                "--json",
+            ]
+        )
+        self.assertEqual(filtered.exit_code, 0)
+        filtered_payload = json.loads(filtered.stdout)
+        events = filtered_payload["data"]["events"]
+        self.assertGreaterEqual(len(events), 1)
+        for event in events:
+            self.assertEqual(event["turnId"], first_turn_id)
+            self.assertEqual(event["type"], "turn.completed")
+
+        since_filtered = self.invoke(
+            [
+                "worker",
+                "inspect",
+                worker_id,
+                "--since",
+                "9999-01-01T00:00:00+00:00",
+                "--json",
+            ]
+        )
+        self.assertEqual(since_filtered.exit_code, 0)
+        since_payload = json.loads(since_filtered.stdout)
+        self.assertEqual(len(since_payload["data"]["events"]), 0)
 
     def test_controller_recover_and_release(self) -> None:
         init = self.init_controller()

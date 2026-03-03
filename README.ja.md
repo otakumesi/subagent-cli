@@ -141,6 +141,17 @@ subagent send --worker <worker-id> --text "<instruction>" --json
 subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 ```
 
+シェル解釈事故を避ける安全な入力方法（`--input` 推奨）:
+```bash
+subagent send --input - --json <<'JSON'
+{
+  "workerId": "<worker-id>",
+  "text": "`echo hello` や $(uname) を文字列として扱い、実行しないこと。"
+}
+JSON
+```
+JSON の正規キーは `workerId` です（互換のため `worker` も受け付けます）。
+
 手動待機モード（高度なカーソル制御）:
 ```bash
 subagent wait --worker <worker-id> --until turn_end --timeout-seconds 60 --json

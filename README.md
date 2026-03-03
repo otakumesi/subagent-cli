@@ -141,6 +141,17 @@ Opt out of waiting when needed:
 subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 ```
 
+For shell-safe input (recommended when text includes backticks, `$()`, redirects, etc.):
+```bash
+subagent send --input - --json <<'JSON'
+{
+  "workerId": "<worker-id>",
+  "text": "Use commands like `echo hello` literally; do not execute them."
+}
+JSON
+```
+`workerId` is the canonical JSON key (`worker` is accepted as a compatibility alias).
+
 Manual wait mode (advanced cursor control) still exists:
 ```bash
 subagent wait --worker <worker-id> --until turn_end --timeout-seconds 60 --json
