@@ -134,12 +134,12 @@ handoff 後のマネージャーエージェント標準ライフサイクル:
 
 単発で送信して、終了イベントまたは承認要求まで待機する例:
 ```bash
-subagent send --worker <worker-id> --text "<instruction>" --json
+subagent send --worker-id <worker-id> --text "<instruction>" --json
 ```
 
 待機を無効化する例:
 ```bash
-subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
+subagent send --worker-id <worker-id> --text "<instruction>" --no-wait --json
 ```
 
 複数行やシェル解釈事故を避ける安全な入力方法（推奨）:
@@ -147,19 +147,24 @@ subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 cat > instruction.txt <<'TEXT'
 `echo hello` や $(uname) を文字列として扱い、実行しないこと。
 TEXT
-subagent send --worker <worker-id> --text-file ./instruction.txt --json
+subagent send --worker-id <worker-id> --text-file ./instruction.txt --json
 ```
 
 stdin 版:
 ```bash
-cat ./instruction.txt | subagent send --worker <worker-id> --text-stdin --json
+cat ./instruction.txt | subagent send --worker-id <worker-id> --text-stdin --json
 ```
 
-高度な自動化では、構造化 JSON 入力 `--input` も使えます（`workerId` 必須）。
+高度な自動化では、構造化 JSON 入力 `--input` も使えます（JSON キーは `workerId`、CLI フラグは `--worker-id`）。
 
 手動待機モード（高度なカーソル制御）:
 ```bash
-subagent wait --worker <worker-id> --until turn_end --timeout-seconds 60 --json
+subagent wait --worker-id <worker-id> --until turn_end --timeout-seconds 60 --json
+```
+
+履歴イベントも対象に含める場合:
+```bash
+subagent wait --worker-id <worker-id> --include-history --until turn_end --timeout-seconds 60 --json
 ```
 
 実 launcher なしでローカルシミュレーションする場合:
@@ -175,7 +180,7 @@ subagent worker start --cwd . --debug-mode
 ```bash
 subagent launcher probe <launcher-name> --json
 ```
-- `worker start` が `BACKEND_UNAVAILABLE` で失敗する場合は、`<workspace>/.subagent/state/runtimes/`（既定）または `$SUBAGENT_STATE_DIR/runtimes/`（上書き時）のログを確認してください。
+- `worker start` がバックエンド系エラー（例: `BACKEND_TIMEOUT` / `BACKEND_SOCKET_UNREACHABLE` / `BACKEND_LAUNCHER`）で失敗する場合は、`<workspace>/.subagent/state/runtimes/`（既定）または `$SUBAGENT_STATE_DIR/runtimes/`（上書き時）のログを確認してください。
 - バックエンド接続なしの簡易テスト:
 ```bash
 subagent worker start --cwd . --debug-mode

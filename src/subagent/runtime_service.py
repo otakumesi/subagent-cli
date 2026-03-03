@@ -19,8 +19,32 @@ from .launcher_service import resolve_launcher_spec
 from .state import StateStore
 
 
-def _classify_backend_unavailable(error: str | None) -> tuple[str, str]:
-    lowered = (error or "").lower()
+def _backend_error_code_for_category(category: str) -> str:
+    mapping = {
+        "permission": "BACKEND_PERMISSION_DENIED",
+        "socket": "BACKEND_SOCKET_UNREACHABLE",
+        "timeout": "BACKEND_TIMEOUT",
+        "launcher": "BACKEND_LAUNCHER",
+        "worker": "BACKEND_WORKER_CONFIG",
+    }
+    return mapping.get(category, "BACKEND_UNAVAILABLE")
+
+
+def _read_runtime_log_tail(log_path: Path, *, max_chars: int = 4000) -> str | None:
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    trimmed = content.strip()
+    if not trimmed:
+        return None
+    if len(trimmed) > max_chars:
+        trimmed = trimmed[-max_chars:]
+    return trimmed
+
+
+def _classify_backend_unavailable(error: str | None, *, log_tail: str | None = None) -> tuple[str, str]:
+    lowered = "\n".join(part for part in (error, log_tail) if isinstance(part, str)).lower()
     if any(token in lowered for token in ("operation not permitted", "permission denied", "eacces", "eperm")):
         return (
             "permission",
@@ -43,7 +67,7 @@ def _classify_backend_unavailable(error: str | None) -> tuple[str, str]:
         )
     return (
         "unknown",
-        "Inspect runtime logs and retry. In sandboxed environments, outside-sandbox execution may be required.",
+        "Inspect runtime logs and retry. If running in a sandbox, re-run the same command outside sandbox.",
     )
 
 
@@ -81,15 +105,32 @@ def _send_socket_request(
                 chunks.append(block)
                 if b"\n" in block:
                     break
-    except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError) as exc:
+    except socket.timeout as exc:
+        category = "timeout"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
+            message="Worker runtime request timed out.",
+            details={
+                "socketPath": str(socket_path),
+                "method": method,
+                "error": str(exc),
+                "reasonCategory": category,
+                "recommendedAction": (
+                    "Worker runtime did not respond before timeout. "
+                    "Retry once, then restart the worker runtime if needed."
+                ),
+            },
+        ) from exc
+    except (FileNotFoundError, ConnectionRefusedError, OSError) as exc:
+        category = "socket"
+        raise SubagentError(
+            code=_backend_error_code_for_category(category),
             message="Worker runtime is not reachable.",
             details={
                 "socketPath": str(socket_path),
                 "method": method,
                 "error": str(exc),
-                "reasonCategory": "socket",
+                "reasonCategory": category,
                 "recommendedAction": (
                     "Worker runtime endpoint is unreachable. Retry once; "
                     "if it keeps failing, restart the worker runtime."
@@ -137,10 +178,15 @@ def runtime_request(
         )
     socket_path_raw = worker.get("runtime_socket")
     if not isinstance(socket_path_raw, str) or not socket_path_raw:
+        category = "socket"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
             message="Worker runtime is not initialized.",
-            details={"workerId": worker_id},
+            details={
+                "workerId": worker_id,
+                "reasonCategory": category,
+                "recommendedAction": "Worker runtime endpoint is missing. Restart worker runtime and retry.",
+            },
         )
     socket_path = Path(socket_path_raw)
     response = _send_socket_request(
@@ -257,7 +303,11 @@ def launch_worker_runtime(
                     timeout_seconds=1.0,
                 )
             except SubagentError as error:
-                last_error = error.message
+                detail_error = error.details.get("error") if isinstance(error.details, dict) else None
+                if isinstance(detail_error, str) and detail_error:
+                    last_error = detail_error
+                else:
+                    last_error = error.message
             else:
                 if response.get("ok") is True:
                     return {
@@ -266,6 +316,8 @@ def launch_worker_runtime(
                         "logPath": str(log_path),
                     }
         time.sleep(0.1)
+    if last_error is None:
+        last_error = "runtime startup timed out before socket became ready"
     try:
         process.terminate()
         process.wait(timeout=1.0)
@@ -275,19 +327,25 @@ def launch_worker_runtime(
         except Exception:
             pass
     store.clear_worker_runtime_endpoint(worker_id)
-    reason_category, recommended_action = _classify_backend_unavailable(last_error)
+    log_tail = _read_runtime_log_tail(log_path)
+    reason_category, recommended_action = _classify_backend_unavailable(last_error, log_tail=log_tail)
+    details: dict[str, Any] = {
+        "workerId": worker_id,
+        "command": command,
+        "socketPath": str(socket_path),
+        "logPath": str(log_path),
+        "error": last_error,
+        "reasonCategory": reason_category,
+        "recommendedAction": recommended_action,
+    }
+    if log_tail is not None:
+        details["logTail"] = log_tail
+    if reason_category == "permission":
+        details["recommendedCommand"] = "Re-run the same subagent command outside sandbox."
     raise SubagentError(
-        code="BACKEND_UNAVAILABLE",
+        code=_backend_error_code_for_category(reason_category),
         message="Failed to start worker runtime.",
-        details={
-            "workerId": worker_id,
-            "command": command,
-            "socketPath": str(socket_path),
-            "logPath": str(log_path),
-            "error": last_error,
-            "reasonCategory": reason_category,
-            "recommendedAction": recommended_action,
-        },
+        details=details,
     )
 
 
@@ -307,12 +365,13 @@ def restart_worker_runtime(
         )
     launcher_name = worker.get("launcher")
     if not isinstance(launcher_name, str) or not launcher_name:
+        category = "launcher"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
             message="Worker launcher is not set.",
             details={
                 "workerId": worker_id,
-                "reasonCategory": "launcher",
+                "reasonCategory": category,
                 "recommendedAction": "Worker metadata is incomplete. Restart worker from manager.",
             },
         )
@@ -324,21 +383,23 @@ def restart_worker_runtime(
             details={"workerId": worker_id, "launcher": launcher_name},
         )
     if launcher.backend_kind != "acp-stdio":
+        category = "launcher"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
             message=f"Unsupported backend kind for runtime: {launcher.backend_kind}",
             details={
                 "workerId": worker_id,
                 "launcher": launcher_name,
                 "backendKind": launcher.backend_kind,
-                "reasonCategory": "launcher",
+                "reasonCategory": category,
                 "recommendedAction": "Use an `acp-stdio` launcher for runtime-backed workers.",
             },
         )
     resolved = resolve_launcher_spec(launcher)
     if not resolved.available:
+        category = "launcher"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
             message=f"Launcher command not available: {launcher.command}",
             details={
                 "workerId": worker_id,
@@ -346,7 +407,7 @@ def restart_worker_runtime(
                 "command": launcher.command,
                 "effectiveCommand": resolved.command,
                 "effectiveArgs": resolved.args,
-                "reasonCategory": "launcher",
+                "reasonCategory": category,
                 "recommendedAction": (
                     "Install/fix the launcher command and run "
                     f"`subagent launcher probe {launcher_name} --json` before retrying."
@@ -362,12 +423,13 @@ def restart_worker_runtime(
     )
     worker_cwd = worker.get("cwd")
     if not isinstance(worker_cwd, str) or not worker_cwd:
+        category = "worker"
         raise SubagentError(
-            code="BACKEND_UNAVAILABLE",
+            code=_backend_error_code_for_category(category),
             message="Worker cwd is not available.",
             details={
                 "workerId": worker_id,
-                "reasonCategory": "worker",
+                "reasonCategory": category,
                 "recommendedAction": "Worker metadata is incomplete. Restart worker from manager.",
             },
         )

@@ -13,6 +13,9 @@ from .paths import resolve_workspace_path
 from .runtime_service import launch_worker_runtime, stop_worker_runtime
 from .state import WORKER_STATE_ERROR, StateStore
 
+TERMINAL_TURN_EVENT_TYPES = ("turn.completed", "turn.failed", "turn.canceled")
+ACTIVE_RUNTIME_STATES = {"running", "waiting_approval", "canceling"}
+
 
 def resolve_worker_controller_id(
     store: StateStore,
@@ -184,7 +187,7 @@ def start_worker(
     if not debug_mode:
         if launcher_entry.backend_kind != "acp-stdio":
             raise SubagentError(
-                code="BACKEND_UNAVAILABLE",
+                code="BACKEND_LAUNCHER",
                 message=f"Unsupported backend kind for runtime: {launcher_entry.backend_kind}",
                 details={
                     "launcher": target_launcher,
@@ -196,7 +199,7 @@ def start_worker(
         resolved = resolve_launcher_spec(launcher_entry)
         if not resolved.available:
             raise SubagentError(
-                code="BACKEND_UNAVAILABLE",
+                code="BACKEND_LAUNCHER",
                 message=f"Launcher command not available: {launcher_entry.command}",
                 details={
                     "launcher": target_launcher,
@@ -257,7 +260,7 @@ def list_workers(
     *,
     controller_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    workers = store.list_workers(controller_id=controller_id)
+    workers = [_resync_stale_runtime_state(store, row) for row in store.list_workers(controller_id=controller_id)]
     return [
         {
             "workerId": row["worker_id"],
@@ -287,6 +290,7 @@ def show_worker(store: StateStore, worker_id: str) -> dict[str, Any]:
             message=f"Worker not found: {worker_id}",
             details={"workerId": worker_id},
         )
+    worker = _resync_stale_runtime_state(store, worker)
     return {
         "workerId": worker["worker_id"],
         "controllerId": worker["controller_id"],
@@ -306,6 +310,30 @@ def show_worker(store: StateStore, worker_id: str) -> dict[str, Any]:
         "stoppedAt": worker["stopped_at"],
         "lastError": worker["last_error"],
     }
+
+
+def _resync_stale_runtime_state(store: StateStore, row: dict[str, Any]) -> dict[str, Any]:
+    state = str(row.get("state") or "")
+    worker_id = str(row.get("worker_id") or "")
+    if not worker_id or state not in ACTIVE_RUNTIME_STATES:
+        return row
+    active_turn_raw = row.get("active_turn_id")
+    if not isinstance(active_turn_raw, str) or not active_turn_raw:
+        return row
+    terminal_events = store.list_worker_events(
+        worker_id,
+        turn_id=active_turn_raw,
+        event_types=list(TERMINAL_TURN_EVENT_TYPES),
+        limit=1,
+        tail=True,
+    )
+    if not terminal_events:
+        return row
+    return store.update_worker_state(
+        worker_id,
+        next_state="idle",
+        allow_any_transition=True,
+    )
 
 
 def stop_worker(store: StateStore, worker_id: str, *, force: bool = False) -> dict[str, Any]:

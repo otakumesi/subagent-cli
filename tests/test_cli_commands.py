@@ -178,6 +178,8 @@ class CliCommandTests(unittest.TestCase):
         self.assertIn("turn_end", result.stdout)
         self.assertIn("--timeout-seconds", result.stdout)
         self.assertIn("no timeout", result.stdout)
+        self.assertIn("--after-latest", result.stdout)
+        self.assertIn("--include-history", result.stdout)
 
     def test_watch_help_lists_streaming_options(self) -> None:
         result = self.invoke(["watch", "--help"])

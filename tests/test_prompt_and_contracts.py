@@ -93,11 +93,12 @@ class PromptAndContractTests(unittest.TestCase):
         manager_prompt = str(manager_payload["data"]["prompt"])
         self.assertIn("Read this quick workflow first", manager_prompt)
         self.assertIn("subagent controller init", manager_prompt)
-        self.assertIn("subagent send --worker", manager_prompt)
+        self.assertIn("subagent send --worker-id", manager_prompt)
         self.assertIn("--no-wait", manager_prompt)
         self.assertIn("--wait-no-progress-timeout-seconds", manager_prompt)
         self.assertIn("--text-file", manager_prompt)
         self.assertIn("--text-stdin", manager_prompt)
+        self.assertIn("--include-history", manager_prompt)
 
         worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
         self.assertEqual(worker.exit_code, 0)
@@ -116,7 +117,7 @@ class PromptAndContractTests(unittest.TestCase):
         self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "needs approval",
@@ -136,7 +137,7 @@ class PromptAndContractTests(unittest.TestCase):
         first_send = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "first filtered turn",
@@ -152,7 +153,7 @@ class PromptAndContractTests(unittest.TestCase):
         second_send = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "second turn",
@@ -236,7 +237,7 @@ class PromptAndContractTests(unittest.TestCase):
         duplicate = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "duplicate",

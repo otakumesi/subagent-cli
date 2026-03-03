@@ -89,7 +89,7 @@ class HandoffCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Investigate flaky retry test",
@@ -99,7 +99,7 @@ class HandoffCommandTests(unittest.TestCase):
         )
         self.assertEqual(send_result.exit_code, 0)
 
-        handoff_result = self.invoke(["worker", "handoff", "--worker", worker_id, "--json"])
+        handoff_result = self.invoke(["worker", "handoff", "--worker-id", worker_id, "--json"])
         self.assertEqual(handoff_result.exit_code, 0)
         handoff_payload = json.loads(handoff_result.stdout)
         self.assertEqual(handoff_payload["type"], "worker.handoff.ready")
@@ -135,7 +135,7 @@ class HandoffCommandTests(unittest.TestCase):
         self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 source_worker,
                 "--text",
                 "Prepare handoff context",
@@ -160,7 +160,7 @@ class HandoffCommandTests(unittest.TestCase):
         new_worker = payload["data"]["worker"]["workerId"]
         self.assertNotEqual(new_worker, source_worker)
 
-        watch_result = self.invoke(["watch", "--worker", new_worker, "--ndjson"])
+        watch_result = self.invoke(["watch", "--worker-id", new_worker, "--ndjson"])
         self.assertEqual(watch_result.exit_code, 0)
         lines = [line for line in watch_result.stdout.splitlines() if line.strip()]
         self.assertGreaterEqual(len(lines), 2)
@@ -173,7 +173,7 @@ class HandoffCommandTests(unittest.TestCase):
         self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 source_worker,
                 "--text",
                 "Need follow-up work",
@@ -181,7 +181,7 @@ class HandoffCommandTests(unittest.TestCase):
                 "--json",
             ]
         )
-        handoff_result = self.invoke(["worker", "handoff", "--worker", source_worker, "--json"])
+        handoff_result = self.invoke(["worker", "handoff", "--worker-id", source_worker, "--json"])
         handoff_payload = json.loads(handoff_result.stdout)
         handoff_path = handoff_payload["data"]["handoffPath"]
 
@@ -202,7 +202,7 @@ class HandoffCommandTests(unittest.TestCase):
 
     def test_worker_continue_requires_single_source(self) -> None:
         source_worker = self.start_worker()
-        handoff_result = self.invoke(["worker", "handoff", "--worker", source_worker, "--json"])
+        handoff_result = self.invoke(["worker", "handoff", "--worker-id", source_worker, "--json"])
         handoff_payload = json.loads(handoff_result.stdout)
         handoff_path = handoff_payload["data"]["handoffPath"]
 

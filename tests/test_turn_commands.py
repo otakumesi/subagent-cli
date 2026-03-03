@@ -4,10 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from typer.testing import CliRunner
 
 from subagent.cli import app
+from subagent.errors import SubagentError
 
 SAMPLE_CONFIG = """
 launchers:
@@ -134,12 +136,15 @@ class TurnCommandTests(unittest.TestCase):
         start_payload = json.loads(start_result.stdout)
         worker_id = str(start_payload["data"]["workerId"])
         send_result = self.invoke(
-            ["send", "--worker", worker_id, "--text", "strict by default", "--json"],
+            ["send", "--worker-id", worker_id, "--text", "strict by default", "--json"],
             env=env,
         )
         self.assertEqual(send_result.exit_code, 1)
         payload = json.loads(send_result.stdout)
-        self.assertEqual(payload["error"]["code"], "BACKEND_UNAVAILABLE")
+        self.assertIn(
+            payload["error"]["code"],
+            {"BACKEND_TIMEOUT", "BACKEND_SOCKET_UNREACHABLE", "BACKEND_PERMISSION_DENIED", "BACKEND_LAUNCHER"},
+        )
         details = payload["error"]["details"]
         self.assertIn("recommendedAction", details)
 
@@ -148,7 +153,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Investigate flaky test",
@@ -165,8 +170,9 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
+                "--include-history",
                 "--until",
                 "turn.completed",
                 "--timeout-seconds",
@@ -179,7 +185,7 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(wait_payload["type"], "event.matched")
         self.assertEqual(wait_payload["data"]["type"], "turn.completed")
 
-        watch_result = self.invoke(["watch", "--worker", worker_id, "--ndjson"])
+        watch_result = self.invoke(["watch", "--worker-id", worker_id, "--ndjson"])
         self.assertEqual(watch_result.exit_code, 0)
         lines = [line for line in watch_result.stdout.splitlines() if line.strip()]
         self.assertGreaterEqual(len(lines), 3)
@@ -196,7 +202,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "default wait path",
@@ -227,7 +233,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Use `echo hello` and $(uname) safely",
@@ -258,7 +264,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text-file",
                 str(text_path),
@@ -277,7 +283,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text-stdin",
                 "--debug-mode",
@@ -298,7 +304,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "from text flag",
@@ -381,7 +387,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Needs approval",
@@ -404,7 +410,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Needs approval",
@@ -425,7 +431,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Needs approval",
@@ -440,8 +446,9 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
+                "--include-history",
                 "--timeout-seconds",
                 "1",
                 "--json",
@@ -457,7 +464,7 @@ class TurnCommandTests(unittest.TestCase):
         self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "needs wait alias",
@@ -482,12 +489,43 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(wait_payload["error"]["code"], "INVALID_INPUT")
         self.assertIn("not supported", wait_payload["error"]["message"])
 
+    def test_wait_after_latest_skips_history_events(self) -> None:
+        worker_id = self.start_worker()
+        self.invoke(
+            [
+                "send",
+                "--worker-id",
+                worker_id,
+                "--text",
+                "history only",
+                "--debug-mode",
+                "--json",
+            ]
+        )
+        wait_result = self.invoke(
+            [
+                "wait",
+                "--worker-id",
+                worker_id,
+                "--after-latest",
+                "--until",
+                "turn.completed",
+                "--timeout-seconds",
+                "0.1",
+                "--json",
+            ]
+        )
+        self.assertEqual(wait_result.exit_code, 1)
+        wait_payload = json.loads(wait_result.stdout)
+        self.assertFalse(wait_payload["ok"])
+        self.assertEqual(wait_payload["error"]["code"], "WAIT_TIMEOUT")
+
     def test_wait_supports_turn_end_alias(self) -> None:
         worker_id = self.start_worker()
         self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Needs approval",
@@ -498,8 +536,9 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
+                "--include-history",
                 "--until",
                 "turn_end",
                 "--timeout-seconds",
@@ -516,7 +555,7 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--until",
                 "turn_end_typo",
@@ -534,7 +573,7 @@ class TurnCommandTests(unittest.TestCase):
         first_send = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "Needs approval",
@@ -547,7 +586,7 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(first_payload["data"]["state"], "waiting_approval")
 
         second_send = self.invoke(
-            ["send", "--worker", worker_id, "--text", "second instruction", "--json"]
+            ["send", "--worker-id", worker_id, "--text", "second instruction", "--json"]
         )
         self.assertEqual(second_send.exit_code, 1)
         error_payload = json.loads(second_send.stdout)
@@ -559,7 +598,7 @@ class TurnCommandTests(unittest.TestCase):
         first_send = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "approval alias",
@@ -572,7 +611,7 @@ class TurnCommandTests(unittest.TestCase):
         alias_approve = self.invoke(
             [
                 "approve",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--request",
                 request_id,
@@ -589,7 +628,7 @@ class TurnCommandTests(unittest.TestCase):
         second_send = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "approval option id",
@@ -602,7 +641,7 @@ class TurnCommandTests(unittest.TestCase):
         option_approve = self.invoke(
             [
                 "approve",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--request",
                 second_request_id,
@@ -620,7 +659,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "approval via input alias",
@@ -656,7 +695,7 @@ class TurnCommandTests(unittest.TestCase):
         send_result = self.invoke(
             [
                 "send",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--text",
                 "cancel this",
@@ -666,7 +705,7 @@ class TurnCommandTests(unittest.TestCase):
         )
         self.assertEqual(send_result.exit_code, 0)
         cancel_result = self.invoke(
-            ["cancel", "--worker", worker_id, "--reason", "no longer needed", "--json"]
+            ["cancel", "--worker-id", worker_id, "--reason", "no longer needed", "--json"]
         )
         self.assertEqual(cancel_result.exit_code, 0)
         cancel_payload = json.loads(cancel_result.stdout)
@@ -676,8 +715,9 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
+                "--include-history",
                 "--until",
                 "turn.canceled",
                 "--timeout-seconds",
@@ -694,7 +734,7 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--until",
                 "approval.requested",
@@ -716,7 +756,7 @@ class TurnCommandTests(unittest.TestCase):
         wait_result = self.invoke(
             [
                 "wait",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--until",
                 "turn.completed",
@@ -736,3 +776,35 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(details["noProgressTimeoutSeconds"], 0.1)
         self.assertIsNone(details["latestEvent"])
         self.assertIsNone(details["lastMeaningfulEvent"])
+        self.assertIn("diagnosis", details)
+
+    def test_send_wait_no_progress_timeout_does_not_rewrite_dispatch_errors(self) -> None:
+        worker_id = self.start_worker()
+        timeout_error = SubagentError(
+            code="BACKEND_TIMEOUT",
+            message="Worker runtime request timed out.",
+            details={
+                "reasonCategory": "timeout",
+                "error": "timed out",
+                "recommendedAction": "retry",
+            },
+        )
+        with mock.patch("subagent.turn_service._runtime_request_with_restart", side_effect=timeout_error):
+            send_result = self.invoke(
+                [
+                    "send",
+                    "--worker-id",
+                    worker_id,
+                    "--text",
+                    "runtime timeout guard",
+                    "--wait-no-progress-timeout-seconds",
+                    "0.1",
+                    "--json",
+                ]
+            )
+        self.assertEqual(send_result.exit_code, 1)
+        payload = json.loads(send_result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "BACKEND_TIMEOUT")
+        details = payload["error"]["details"]
+        self.assertEqual(details["reasonCategory"], "timeout")

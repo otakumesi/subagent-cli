@@ -134,12 +134,12 @@ After handoff, the manager agent's standard lifecycle is:
 
 For a single command that sends and waits for terminal-or-approval events:
 ```bash
-subagent send --worker <worker-id> --text "<instruction>" --json
+subagent send --worker-id <worker-id> --text "<instruction>" --json
 ```
 
 Opt out of waiting when needed:
 ```bash
-subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
+subagent send --worker-id <worker-id> --text "<instruction>" --no-wait --json
 ```
 
 For multiline or shell-safe input (recommended):
@@ -147,19 +147,24 @@ For multiline or shell-safe input (recommended):
 cat > instruction.txt <<'TEXT'
 Use commands like `echo hello` literally; do not execute them.
 TEXT
-subagent send --worker <worker-id> --text-file ./instruction.txt --json
+subagent send --worker-id <worker-id> --text-file ./instruction.txt --json
 ```
 
 stdin variant:
 ```bash
-cat ./instruction.txt | subagent send --worker <worker-id> --text-stdin --json
+cat ./instruction.txt | subagent send --worker-id <worker-id> --text-stdin --json
 ```
 
-Advanced automation can still use structured JSON input via `--input` (`workerId` required).
+Advanced automation can still use structured JSON input via `--input` (JSON key: `workerId`; CLI flag: `--worker-id`).
 
 Manual wait mode (advanced cursor control) still exists:
 ```bash
-subagent wait --worker <worker-id> --until turn_end --timeout-seconds 60 --json
+subagent wait --worker-id <worker-id> --until turn_end --timeout-seconds 60 --json
+```
+
+To include historical events in matching:
+```bash
+subagent wait --worker-id <worker-id> --include-history --until turn_end --timeout-seconds 60 --json
 ```
 
 For local simulation/testing without a real ACP launcher:
@@ -175,7 +180,7 @@ subagent worker start --cwd . --debug-mode
 ```bash
 subagent launcher probe <launcher-name> --json
 ```
-- If `worker start` fails with `BACKEND_UNAVAILABLE`, inspect runtime logs under `<workspace>/.subagent/state/runtimes/` (default) or `$SUBAGENT_STATE_DIR/runtimes/` (when overridden).
+- If `worker start` fails with a backend error (for example `BACKEND_TIMEOUT`, `BACKEND_SOCKET_UNREACHABLE`, `BACKEND_LAUNCHER`), inspect runtime logs under `<workspace>/.subagent/state/runtimes/` (default) or `$SUBAGENT_STATE_DIR/runtimes/` (when overridden).
 - For cut-down local testing without backend connectivity:
 ```bash
 subagent worker start --cwd . --debug-mode

@@ -10,7 +10,12 @@ import click
 import typer
 
 from .config import SubagentConfig, load_config
-from .constants import DEFAULT_WAIT_TIMEOUT_SECONDS, DEFAULT_WAIT_UNTIL, PROJECT_HINT_DIRNAME
+from .constants import (
+    DEFAULT_WAIT_TIMEOUT_SECONDS,
+    DEFAULT_WAIT_UNTIL,
+    PROJECT_HINT_DIRNAME,
+    RUNTIME_STARTUP_TIMEOUT_SECONDS,
+)
 from .controller_service import (
     attach_controller,
     init_controller,
@@ -280,7 +285,10 @@ def _read_worker_id_from_input(payload: dict[str, Any]) -> str | None:
     if "worker" in payload:
         raise SubagentError(
             code="INVALID_INPUT",
-            message="`worker` is not supported in `--input`; use `workerId`",
+            message=(
+                "`worker` is not supported in `--input`; use `workerId` "
+                "(CLI flags use `--worker-id`)."
+            ),
         )
     return worker_id
 
@@ -821,8 +829,12 @@ def controller_release(
 )
 def send(
     ctx: typer.Context,
-    worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
-    text: str | None = typer.Option(None, "--text", help="Instruction text"),
+    worker_id: str | None = typer.Option(None, "--worker-id", help="Worker ID"),
+    text: str | None = typer.Option(
+        None,
+        "--text",
+        help="Instruction text (for shell-sensitive content, prefer --text-file or --text-stdin).",
+    ),
     text_file: Path | None = typer.Option(None, "--text-file", help="Read instruction text from UTF-8 file."),
     text_stdin: bool = typer.Option(False, "--text-stdin", help="Read instruction text from stdin."),
     blocks_json: str | None = typer.Option(
@@ -862,7 +874,7 @@ def send(
         "--input",
         help=(
             "Advanced: structured JSON input for complex workflows "
-            "(file path or '-'; use `workerId`)."
+            "(file path or '-'; JSON key is `workerId`, CLI flag is `--worker-id`)."
         ),
     ),
     debug_mode: bool = typer.Option(
@@ -959,7 +971,7 @@ def send(
                 json_output=json_output,
             )
 
-        worker_id = _require_value(worker_id, name="worker", json_output=json_output)
+        worker_id = _require_value(worker_id, name="worker-id", json_output=json_output)
         text_candidates: list[tuple[str, str]] = []
         if text_from_input is not None:
             text_candidates.append(("input.text", text_from_input))
@@ -1022,6 +1034,8 @@ def send(
             request_approval=request_approval,
             config=config,
             execution_mode=execution_mode,
+            request_timeout_seconds=3600.0,
+            restart_timeout_seconds=RUNTIME_STARTUP_TIMEOUT_SECONDS,
         )
         if wait_for_match:
             from_event_id = payload.get("acceptedEventId")
@@ -1093,7 +1107,7 @@ def send(
     ),
 )
 def watch(
-    worker_id: str = typer.Option(..., "--worker", help="Worker ID"),
+    worker_id: str = typer.Option(..., "--worker-id", help="Worker ID"),
     from_event_id: str | None = typer.Option(None, "--from-event-id", help="Cursor event ID"),
     follow: bool = typer.Option(False, "--follow", help="Follow events for a short window"),
     timeout_seconds: float = typer.Option(
@@ -1156,7 +1170,7 @@ def watch(
 )
 def wait(
     ctx: typer.Context,
-    worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
+    worker_id: str | None = typer.Option(None, "--worker-id", help="Worker ID"),
     until: str = typer.Option(
         DEFAULT_WAIT_UNTIL,
         "--until",
@@ -1167,6 +1181,11 @@ def wait(
         ),
     ),
     from_event_id: str | None = typer.Option(None, "--from-event-id", help="Cursor event ID"),
+    after_latest: bool = typer.Option(
+        True,
+        "--after-latest/--include-history",
+        help="Wait only for newly-arrived events by default. Use --include-history to match existing events.",
+    ),
     timeout_seconds: float = typer.Option(
         DEFAULT_WAIT_TIMEOUT_SECONDS,
         "--timeout-seconds",
@@ -1184,7 +1203,7 @@ def wait(
         "--input",
         help=(
             "Advanced: structured JSON input for complex workflows "
-            "(file path or '-'; use `workerId`)."
+            "(file path or '-'; JSON key is `workerId`, CLI flag is `--worker-id`)."
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
@@ -1197,6 +1216,7 @@ def wait(
                 "worker_id": worker_id,
                 "until": until,
                 "from_event_id": from_event_id,
+                "after_latest": after_latest,
                 "timeout_seconds": timeout_seconds,
                 "no_progress_timeout_seconds": no_progress_timeout_seconds,
             },
@@ -1204,6 +1224,7 @@ def wait(
                 "worker_id": _is_param_default(ctx, "worker_id"),
                 "until": _is_param_default(ctx, "until"),
                 "from_event_id": _is_param_default(ctx, "from_event_id"),
+                "after_latest": _is_param_default(ctx, "after_latest"),
                 "timeout_seconds": _is_param_default(ctx, "timeout_seconds"),
                 "no_progress_timeout_seconds": _is_param_default(ctx, "no_progress_timeout_seconds"),
             },
@@ -1211,6 +1232,7 @@ def wait(
                 "workerId": "worker_id",
                 "until": "until",
                 "fromEventId": "from_event_id",
+                "afterLatest": "after_latest",
                 "timeoutSeconds": "timeout_seconds",
                 "noProgressTimeoutSeconds": "no_progress_timeout_seconds",
             },
@@ -1219,6 +1241,9 @@ def wait(
             worker_id = _read_worker_id_from_input(input_payload) or worker_id
             until = read_string(input_payload, "until") or until
             from_event_id = read_string(input_payload, "fromEventId") or from_event_id
+            payload_after_latest = read_bool(input_payload, "afterLatest")
+            if payload_after_latest is not None:
+                after_latest = payload_after_latest
             timeout_value = input_payload.get("timeoutSeconds")
             if timeout_value is not None:
                 if not isinstance(timeout_value, (int, float)):
@@ -1249,11 +1274,15 @@ def wait(
                     json_output=json_output,
                 )
 
-        worker_id = _require_value(worker_id, name="worker", json_output=json_output)
+        worker_id = _require_value(worker_id, name="worker-id", json_output=json_output)
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
     store = _store(json_output=json_output)
+    if after_latest and from_event_id is None:
+        latest_event = store.get_latest_worker_event(worker_id)
+        if latest_event is not None:
+            from_event_id = str(latest_event["event_id"])
     try:
         event = wait_for_event(
             store,
@@ -1274,7 +1303,7 @@ def wait(
 @app.command("approve")
 def approve(
     ctx: typer.Context,
-    worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
+    worker_id: str | None = typer.Option(None, "--worker-id", help="Worker ID"),
     request_id: str | None = typer.Option(None, "--request", help="Approval request ID"),
     decision: str | None = typer.Option(None, "--decision", help="Decision alias"),
     option_id: str | None = typer.Option(None, "--option-id", help="Approval option id"),
@@ -1285,7 +1314,7 @@ def approve(
         "--input",
         help=(
             "Advanced: structured JSON input for complex workflows "
-            "(file path or '-'; use `workerId`)."
+            "(file path or '-'; JSON key is `workerId`, CLI flag is `--worker-id`)."
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
@@ -1328,7 +1357,7 @@ def approve(
             alias = read_string(input_payload, "alias") or alias
             note = read_string(input_payload, "note") or note
 
-        worker_id = _require_value(worker_id, name="worker", json_output=json_output)
+        worker_id = _require_value(worker_id, name="worker-id", json_output=json_output)
         request_id = _require_value(request_id, name="request", json_output=json_output)
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
@@ -1358,7 +1387,7 @@ def approve(
 
 @app.command("cancel")
 def cancel(
-    worker_id: str = typer.Option(..., "--worker", help="Worker ID"),
+    worker_id: str = typer.Option(..., "--worker-id", help="Worker ID"),
     reason: str | None = typer.Option(None, "--reason", help="Cancel reason"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
@@ -1597,7 +1626,7 @@ def worker_stop(
 
 @worker_app.command("handoff")
 def worker_handoff(
-    worker_id: str = typer.Option(..., "--worker", help="Worker ID"),
+    worker_id: str = typer.Option(..., "--worker-id", help="Worker ID"),
     handoffs_dir: Path | None = typer.Option(
         None,
         "--handoffs-dir",

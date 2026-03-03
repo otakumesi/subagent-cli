@@ -76,14 +76,14 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         return str(payload["data"]["workerId"])
 
     def _watch_events(self, worker_id: str) -> list[dict[str, object]]:
-        watched = self.invoke(["watch", "--worker", worker_id, "--raw", "--ndjson"])
+        watched = self.invoke(["watch", "--worker-id", worker_id, "--raw", "--ndjson"])
         self.assertEqual(watched.exit_code, 0)
         lines = [line for line in watched.stdout.splitlines() if line.strip()]
         return [json.loads(line) for line in lines]
 
     def test_send_uses_acp_backend_and_updates_session_id(self) -> None:
         worker_id = self.start_worker()
-        sent = self.invoke(["send", "--worker", worker_id, "--text", "Investigate flaky test", "--json"])
+        sent = self.invoke(["send", "--worker-id", worker_id, "--text", "Investigate flaky test", "--json"])
         self.assertEqual(sent.exit_code, 0)
         send_payload = json.loads(sent.stdout)
         self.assertEqual(send_payload["type"], "turn.waited")
@@ -115,12 +115,12 @@ class AcpBackendIntegrationTests(unittest.TestCase):
 
     def test_send_reuses_existing_session_via_session_load(self) -> None:
         worker_id = self.start_worker()
-        first = self.invoke(["send", "--worker", worker_id, "--text", "first turn", "--json"])
+        first = self.invoke(["send", "--worker-id", worker_id, "--text", "first turn", "--json"])
         self.assertEqual(first.exit_code, 0)
         shown = self.invoke(["worker", "show", worker_id, "--json"])
         first_session_id = str(json.loads(shown.stdout)["data"]["sessionId"])
 
-        second = self.invoke(["send", "--worker", worker_id, "--text", "second turn", "--json"])
+        second = self.invoke(["send", "--worker-id", worker_id, "--text", "second turn", "--json"])
         self.assertEqual(second.exit_code, 0)
         shown_after = self.invoke(["worker", "show", worker_id, "--json"])
         second_session_id = str(json.loads(shown_after.stdout)["data"]["sessionId"])
@@ -137,7 +137,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
 
     def test_runtime_restart_resumes_previous_session_id(self) -> None:
         worker_id = self.start_worker()
-        first = self.invoke(["send", "--worker", worker_id, "--text", "first turn", "--json"])
+        first = self.invoke(["send", "--worker-id", worker_id, "--text", "first turn", "--json"])
         self.assertEqual(first.exit_code, 0)
 
         shown = self.invoke(["worker", "show", worker_id, "--json"])
@@ -149,7 +149,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         os.kill(first_runtime_pid, signal.SIGKILL)
         time.sleep(0.3)
 
-        second = self.invoke(["send", "--worker", worker_id, "--text", "second turn", "--json"])
+        second = self.invoke(["send", "--worker-id", worker_id, "--text", "second turn", "--json"])
         self.assertEqual(second.exit_code, 0)
 
         shown_after = self.invoke(["worker", "show", worker_id, "--json"])
@@ -173,7 +173,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
 
     def test_permission_request_is_resolved_via_approve_command(self) -> None:
         worker_id = self.start_worker()
-        sent = self.invoke(["send", "--worker", worker_id, "--text", "needs permission", "--json"])
+        sent = self.invoke(["send", "--worker-id", worker_id, "--text", "needs permission", "--json"])
         self.assertEqual(sent.exit_code, 0)
         sent_payload = json.loads(sent.stdout)
         self.assertEqual(sent_payload["data"]["state"], "waiting_approval")
@@ -187,7 +187,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         approved = self.invoke(
             [
                 "approve",
-                "--worker",
+                "--worker-id",
                 worker_id,
                 "--request",
                 request_id,
@@ -238,7 +238,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         time.sleep(0.5)
 
         cancel = self.invoke(
-            ["cancel", "--worker", worker_id, "--reason", "no longer needed", "--json"]
+            ["cancel", "--worker-id", worker_id, "--reason", "no longer needed", "--json"]
         )
         self.assertEqual(cancel.exit_code, 0)
         cancel_payload = json.loads(cancel.stdout)
@@ -270,7 +270,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
 
     def test_cancel_recovers_when_runtime_already_finished_but_state_is_stale_running(self) -> None:
         worker_id = self.start_worker()
-        sent = self.invoke(["send", "--worker", worker_id, "--text", "quick completion", "--json"])
+        sent = self.invoke(["send", "--worker-id", worker_id, "--text", "quick completion", "--json"])
         self.assertEqual(sent.exit_code, 0)
         sent_payload = json.loads(sent.stdout)
         self.assertEqual(sent_payload["type"], "turn.waited")
@@ -280,7 +280,7 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         store.bootstrap()
         store.update_worker_state(worker_id, next_state="running")
 
-        cancel = self.invoke(["cancel", "--worker", worker_id, "--reason", "late cancel", "--json"])
+        cancel = self.invoke(["cancel", "--worker-id", worker_id, "--reason", "late cancel", "--json"])
         self.assertEqual(cancel.exit_code, 0)
         cancel_payload = json.loads(cancel.stdout)
         self.assertEqual(cancel_payload["type"], "turn.canceled")
@@ -335,4 +335,4 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(started.exit_code, 1)
         payload = json.loads(started.stdout)
-        self.assertEqual(payload["error"]["code"], "BACKEND_UNAVAILABLE")
+        self.assertEqual(payload["error"]["code"], "BACKEND_LAUNCHER")
