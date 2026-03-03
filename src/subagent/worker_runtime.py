@@ -331,6 +331,10 @@ class WorkerRuntime:
                     message="worker has an active turn",
                     details={"workerId": self.worker_id, "turnId": self._active_turn_id},
                 )
+            # Re-sync persistent state with this runtime turn. This is critical after
+            # runtime restarts, where startup may have set the worker row back to idle.
+            self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_RUNNING)
+            self.store.set_worker_active_turn(self.worker_id, turn_id)
             self._active_turn_id = turn_id
             self._turn_result = None
             self._turn_error = None
@@ -411,50 +415,67 @@ class WorkerRuntime:
                 kind = tool_call.get("kind")
                 if isinstance(kind, str) and kind:
                     message = f"Backend requested permission for `{kind}`."
-            request = self.store.create_approval_request(
-                self.worker_id,
-                turn_id=turn_id,
-                message=message,
-                kind="tool.call",
-                options=options or None,
-            )
-            self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_WAITING_APPROVAL)
-            self.store.append_worker_event(
-                self.worker_id,
-                event_type="approval.requested",
-                turn_id=turn_id,
-                data={
-                    "requestId": request["request_id"],
-                    "kind": request["kind"],
-                    "message": request["message"],
-                    "options": request["options"],
-                },
-                raw={
-                    "runtime": "acp-stdio",
-                    "phase": "approval.requested",
-                    "request": params,
-                },
-            )
-            with self._cv:
-                self._pending_permission = {
-                    "request_id": request["request_id"],
-                    "response": None,
-                }
-                self._cv.notify_all()
-                while True:
-                    pending = self._pending_permission
-                    if pending is None:
-                        raise SubagentError(
-                            code="BACKEND_RUNTIME_ERROR",
-                            message="Pending permission state was lost.",
-                        )
-                    response = pending.get("response")
-                    if isinstance(response, dict):
-                        self._pending_permission = None
-                        break
-                    self._cv.wait(timeout=0.1)
-            self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_RUNNING)
-            return response
+            request: dict[str, Any] | None = None
+            try:
+                request = self.store.create_approval_request(
+                    self.worker_id,
+                    turn_id=turn_id,
+                    message=message,
+                    kind="tool.call",
+                    options=options or None,
+                )
+                self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_WAITING_APPROVAL)
+                self.store.append_worker_event(
+                    self.worker_id,
+                    event_type="approval.requested",
+                    turn_id=turn_id,
+                    data={
+                        "requestId": request["request_id"],
+                        "kind": request["kind"],
+                        "message": request["message"],
+                        "options": request["options"],
+                    },
+                    raw={
+                        "runtime": "acp-stdio",
+                        "phase": "approval.requested",
+                        "request": params,
+                    },
+                )
+                with self._cv:
+                    self._pending_permission = {
+                        "request_id": request["request_id"],
+                        "response": None,
+                    }
+                    self._cv.notify_all()
+                    while True:
+                        pending = self._pending_permission
+                        if pending is None:
+                            raise SubagentError(
+                                code="BACKEND_RUNTIME_ERROR",
+                                message="Pending permission state was lost.",
+                            )
+                        response = pending.get("response")
+                        if isinstance(response, dict):
+                            self._pending_permission = None
+                            break
+                        self._cv.wait(timeout=0.1)
+                self.store.update_worker_state(self.worker_id, next_state=WORKER_STATE_RUNNING)
+                return response
+            except Exception:
+                # Avoid orphan pending approvals when request wiring fails mid-flight.
+                if request is not None:
+                    request_id = request.get("request_id")
+                    if isinstance(request_id, str) and request_id:
+                        try:
+                            self.store.cancel_approval_request(
+                                self.worker_id,
+                                request_id,
+                                decision="runtime_error",
+                                note="approval flow aborted before a valid response was applied",
+                            )
+                        except Exception:
+                            pass
+                raise
 
         try:
             response = self.client.request(

@@ -654,6 +654,69 @@ class TurnCommandTests(unittest.TestCase):
         option_payload = json.loads(option_approve.stdout)
         self.assertEqual(option_payload["data"]["optionId"], "deny")
 
+    def test_approve_supports_decision_synonyms(self) -> None:
+        worker_id = self.start_worker()
+
+        allow_send = self.invoke(
+            [
+                "send",
+                "--worker-id",
+                worker_id,
+                "--text",
+                "approval decision approve",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        self.assertEqual(allow_send.exit_code, 0)
+        allow_request_id = str(json.loads(allow_send.stdout)["data"]["requestId"])
+        allow_approve = self.invoke(
+            [
+                "approve",
+                "--worker-id",
+                worker_id,
+                "--request",
+                allow_request_id,
+                "--decision",
+                "approve",
+                "--json",
+            ]
+        )
+        self.assertEqual(allow_approve.exit_code, 0)
+        allow_payload = json.loads(allow_approve.stdout)
+        self.assertEqual(allow_payload["type"], "approval.decided")
+        self.assertEqual(allow_payload["data"]["optionId"], "allow")
+
+        deny_send = self.invoke(
+            [
+                "send",
+                "--worker-id",
+                worker_id,
+                "--text",
+                "approval decision reject",
+                "--request-approval",
+                "--json",
+            ]
+        )
+        self.assertEqual(deny_send.exit_code, 0)
+        deny_request_id = str(json.loads(deny_send.stdout)["data"]["requestId"])
+        deny_approve = self.invoke(
+            [
+                "approve",
+                "--worker-id",
+                worker_id,
+                "--request",
+                deny_request_id,
+                "--decision",
+                "reject",
+                "--json",
+            ]
+        )
+        self.assertEqual(deny_approve.exit_code, 0)
+        deny_payload = json.loads(deny_approve.stdout)
+        self.assertEqual(deny_payload["type"], "approval.decided")
+        self.assertEqual(deny_payload["data"]["optionId"], "deny")
+
     def test_approve_input_rejects_worker_alias(self) -> None:
         worker_id = self.start_worker()
         send_result = self.invoke(
@@ -728,6 +791,32 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(wait_result.exit_code, 0)
         wait_payload = json.loads(wait_result.stdout)
         self.assertEqual(wait_payload["data"]["type"], "turn.canceled")
+
+    def test_cancel_returns_not_running_when_worker_is_idle_after_terminal_event(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker-id",
+                worker_id,
+                "--text",
+                "complete quickly",
+                "--debug-mode",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        send_payload = json.loads(send_result.stdout)
+        self.assertEqual(send_payload["data"]["state"], "idle")
+        self.assertEqual(send_payload["data"]["matchedEvent"]["type"], "turn.completed")
+
+        cancel_result = self.invoke(
+            ["cancel", "--worker-id", worker_id, "--reason", "late cancel", "--json"]
+        )
+        self.assertEqual(cancel_result.exit_code, 1)
+        cancel_payload = json.loads(cancel_result.stdout)
+        self.assertFalse(cancel_payload["ok"])
+        self.assertEqual(cancel_payload["error"]["code"], "WORKER_NOT_RUNNING")
 
     def test_wait_timeout_returns_error(self) -> None:
         worker_id = self.start_worker()

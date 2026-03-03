@@ -298,6 +298,276 @@ class CliCommandTests(unittest.TestCase):
         state_db = target_workspace / ".subagent" / "state" / "state.db"
         self.assertTrue(state_db.exists())
 
+    def test_send_accepts_cwd_for_state_resolution_without_state_env(self) -> None:
+        env = {
+            "SUBAGENT_CONFIG": str(self.config_path),
+            "SUBAGENT_STATE_DIR": "",
+            "SUBAGENT_CTL_ID": "",
+            "SUBAGENT_CTL_EPOCH": "",
+            "SUBAGENT_CTL_TOKEN": "",
+        }
+        outsider = self.root / "outsider"
+        outsider.mkdir(parents=True, exist_ok=True)
+        (outsider / ".git").mkdir(parents=True, exist_ok=True)
+        target_workspace = self.root / "target-workspace"
+        target_workspace.mkdir(parents=True, exist_ok=True)
+
+        original_cwd = Path.cwd()
+        os.chdir(outsider)
+        try:
+            init = self.runner.invoke(
+                app,
+                ["controller", "init", "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(init.exit_code, 0)
+
+            started = self.runner.invoke(
+                app,
+                ["worker", "start", "--cwd", str(target_workspace), "--debug-mode", "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(started.exit_code, 0)
+            worker_id = str(json.loads(started.stdout)["data"]["workerId"])
+
+            wrong_scope_send = self.runner.invoke(
+                app,
+                ["send", "--worker-id", worker_id, "--text", "wrong scope", "--debug-mode", "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(wrong_scope_send.exit_code, 1)
+            wrong_scope_payload = json.loads(wrong_scope_send.stdout)
+            self.assertEqual(wrong_scope_payload["error"]["code"], "WORKER_NOT_FOUND")
+
+            fixed_scope_send = self.runner.invoke(
+                app,
+                [
+                    "send",
+                    "--worker-id",
+                    worker_id,
+                    "--text",
+                    "fixed scope",
+                    "--cwd",
+                    str(target_workspace),
+                    "--debug-mode",
+                    "--json",
+                ],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(fixed_scope_send.exit_code, 0)
+            fixed_scope_payload = json.loads(fixed_scope_send.stdout)
+            self.assertEqual(fixed_scope_payload["type"], "turn.waited")
+            self.assertEqual(fixed_scope_payload["data"]["matchedEvent"]["type"], "turn.completed")
+        finally:
+            os.chdir(original_cwd)
+
+    def test_worker_commands_accept_cwd_for_state_resolution_without_state_env(self) -> None:
+        env = {
+            "SUBAGENT_CONFIG": str(self.config_path),
+            "SUBAGENT_STATE_DIR": "",
+            "SUBAGENT_CTL_ID": "",
+            "SUBAGENT_CTL_EPOCH": "",
+            "SUBAGENT_CTL_TOKEN": "",
+        }
+        outsider = self.root / "outsider"
+        outsider.mkdir(parents=True, exist_ok=True)
+        (outsider / ".git").mkdir(parents=True, exist_ok=True)
+        target_workspace = self.root / "target-workspace"
+        target_workspace.mkdir(parents=True, exist_ok=True)
+
+        original_cwd = Path.cwd()
+        os.chdir(outsider)
+        try:
+            init = self.runner.invoke(
+                app,
+                ["controller", "init", "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(init.exit_code, 0)
+
+            started = self.runner.invoke(
+                app,
+                ["worker", "start", "--cwd", str(target_workspace), "--debug-mode", "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(started.exit_code, 0)
+            worker_id = str(json.loads(started.stdout)["data"]["workerId"])
+
+            listed_wrong = self.runner.invoke(
+                app,
+                ["worker", "list", "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(listed_wrong.exit_code, 0)
+            listed_wrong_payload = json.loads(listed_wrong.stdout)
+            self.assertEqual(listed_wrong_payload["data"]["count"], 0)
+
+            listed_fixed = self.runner.invoke(
+                app,
+                ["worker", "list", "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(listed_fixed.exit_code, 0)
+            listed_fixed_payload = json.loads(listed_fixed.stdout)
+            self.assertEqual(listed_fixed_payload["data"]["count"], 1)
+            self.assertEqual(listed_fixed_payload["data"]["items"][0]["workerId"], worker_id)
+
+            show_wrong = self.runner.invoke(
+                app,
+                ["worker", "show", worker_id, "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(show_wrong.exit_code, 1)
+            show_wrong_payload = json.loads(show_wrong.stdout)
+            self.assertEqual(show_wrong_payload["error"]["code"], "WORKER_NOT_FOUND")
+
+            show_fixed = self.runner.invoke(
+                app,
+                ["worker", "show", worker_id, "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(show_fixed.exit_code, 0)
+
+            inspect_fixed = self.runner.invoke(
+                app,
+                ["worker", "inspect", worker_id, "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(inspect_fixed.exit_code, 0)
+
+            handoff_fixed = self.runner.invoke(
+                app,
+                ["worker", "handoff", "--worker-id", worker_id, "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(handoff_fixed.exit_code, 0)
+            handoff_payload = json.loads(handoff_fixed.stdout)
+            handoff_path = Path(handoff_payload["data"]["handoffPath"])
+            self.assertTrue(handoff_path.exists())
+            expected_root = (target_workspace / ".subagent" / "state" / "handoffs").resolve()
+            self.assertTrue(str(handoff_path.resolve()).startswith(str(expected_root)))
+
+            stop_fixed = self.runner.invoke(
+                app,
+                ["worker", "stop", worker_id, "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(stop_fixed.exit_code, 0)
+            stop_payload = json.loads(stop_fixed.stdout)
+            self.assertEqual(stop_payload["data"]["state"], "stopped")
+        finally:
+            os.chdir(original_cwd)
+
+    def test_worker_continue_from_handoff_uses_checkpoint_cwd_when_cwd_omitted(self) -> None:
+        env = {
+            "SUBAGENT_CONFIG": str(self.config_path),
+            "SUBAGENT_STATE_DIR": "",
+            "SUBAGENT_CTL_ID": "",
+            "SUBAGENT_CTL_EPOCH": "",
+            "SUBAGENT_CTL_TOKEN": "",
+        }
+        outsider = self.root / "outsider"
+        outsider.mkdir(parents=True, exist_ok=True)
+        (outsider / ".git").mkdir(parents=True, exist_ok=True)
+        target_workspace = self.root / "target-workspace"
+        target_workspace.mkdir(parents=True, exist_ok=True)
+
+        original_cwd = Path.cwd()
+        os.chdir(outsider)
+        try:
+            init = self.runner.invoke(
+                app,
+                ["controller", "init", "--cwd", str(target_workspace), "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(init.exit_code, 0)
+
+            started = self.runner.invoke(
+                app,
+                ["worker", "start", "--cwd", str(target_workspace), "--debug-mode", "--json"],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(started.exit_code, 0)
+            source_worker_id = str(json.loads(started.stdout)["data"]["workerId"])
+
+            sent = self.runner.invoke(
+                app,
+                [
+                    "send",
+                    "--worker-id",
+                    source_worker_id,
+                    "--text",
+                    "prepare handoff",
+                    "--cwd",
+                    str(target_workspace),
+                    "--debug-mode",
+                    "--json",
+                ],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(sent.exit_code, 0)
+
+            handoff = self.runner.invoke(
+                app,
+                [
+                    "worker",
+                    "handoff",
+                    "--worker-id",
+                    source_worker_id,
+                    "--cwd",
+                    str(target_workspace),
+                    "--json",
+                ],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(handoff.exit_code, 0)
+            handoff_payload = json.loads(handoff.stdout)
+            handoff_path = Path(handoff_payload["data"]["handoffPath"]).resolve()
+
+            continued = self.runner.invoke(
+                app,
+                [
+                    "worker",
+                    "continue",
+                    "--from-handoff",
+                    str(handoff_path),
+                    "--debug-mode",
+                    "--json",
+                ],
+                env=env,
+                catch_exceptions=False,
+            )
+            self.assertEqual(continued.exit_code, 0)
+            continued_payload = json.loads(continued.stdout)
+            self.assertEqual(continued_payload["type"], "worker.continued")
+            self.assertEqual(
+                Path(continued_payload["data"]["sourceHandoffPath"]).resolve(),
+                handoff_path,
+            )
+            self.assertEqual(
+                Path(continued_payload["data"]["worker"]["cwd"]).resolve(),
+                target_workspace.resolve(),
+            )
+        finally:
+            os.chdir(original_cwd)
+
     def test_controller_init_and_status_with_valid_env_handle(self) -> None:
         init_result = self.invoke(
             ["controller", "init", "--cwd", str(self.workspace), "--json"]

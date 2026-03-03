@@ -48,7 +48,7 @@ def resolve_workspace_root_path(cwd: Path | None = None) -> Path:
         code="WORKSPACE_ROOT_NOT_FOUND",
         message=(
             "Workspace root could not be determined. "
-            "Run from inside a workspace, pass --cwd where supported, "
+            "Run from inside a workspace, pass --cwd <workspace> where supported, "
             "or set SUBAGENT_STATE_DIR."
         ),
         details={"cwd": str(resolve_workspace_path(cwd))},

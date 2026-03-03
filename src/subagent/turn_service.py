@@ -541,7 +541,7 @@ def send_message(
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     _ensure_worker_sendable(worker)
     if execution_mode not in {"strict", "simulate"}:
@@ -781,21 +781,22 @@ def cancel_turn(
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     state = str(worker["state"])
     active_turn_id_raw = worker.get("active_turn_id")
     active_turn_id = str(active_turn_id_raw) if isinstance(active_turn_id_raw, str) else None
     if state not in {WORKER_STATE_RUNNING, WORKER_STATE_WAITING_APPROVAL}:
-        recovered = _recover_cancel_race(
-            store,
-            worker_id=worker_id,
-            expected_turn_id=active_turn_id,
-            wait_seconds=0.0,
-            require_recent_terminal=False,
-        )
-        if recovered is not None:
-            return recovered
+        if active_turn_id is not None:
+            recovered = _recover_cancel_race(
+                store,
+                worker_id=worker_id,
+                expected_turn_id=active_turn_id,
+                wait_seconds=0.0,
+                require_recent_terminal=False,
+            )
+            if recovered is not None:
+                return recovered
         latest_event = store.get_latest_worker_event(worker_id)
         raise SubagentError(
             code="WORKER_NOT_RUNNING",
@@ -818,7 +819,9 @@ def cancel_turn(
                 timeout_seconds=120.0,
             )
         except SubagentError as error:
-            if error.code == "WORKER_NOT_RUNNING" or error.code in BACKEND_RECOVERABLE_ERROR_CODES:
+            if active_turn_id is not None and (
+                error.code == "WORKER_NOT_RUNNING" or error.code in BACKEND_RECOVERABLE_ERROR_CODES
+            ):
                 recovered = _recover_cancel_race(
                     store,
                     worker_id=worker_id,
@@ -866,7 +869,7 @@ def approve_request(
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     runtime_socket = worker.get("runtime_socket")
     if isinstance(runtime_socket, str) and runtime_socket:

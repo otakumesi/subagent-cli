@@ -773,7 +773,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         with self.connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -819,7 +819,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         with self.connection() as conn:
             cursor_seq = self._resolve_event_cursor_seq(
@@ -859,7 +859,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         with self.connection() as conn:
             row = conn.execute(
@@ -882,7 +882,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         normalized_options = options or [
             {"id": "allow", "alias": "allow", "label": "Allow"},
@@ -933,7 +933,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         with self.connection() as conn:
             rows = conn.execute(
@@ -1000,6 +1000,52 @@ class StateStore:
             ).fetchone()
         return _deserialize_approval_row(_row_to_dict(row)) or {}
 
+    def cancel_approval_request(
+        self,
+        worker_id: str,
+        request_id: str,
+        *,
+        decision: str = "cancelled",
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        request = self.get_approval_request(worker_id, request_id)
+        if request is None:
+            raise SubagentError(
+                code="APPROVAL_NOT_FOUND",
+                message=f"Approval request not found: {request_id}",
+                details={"workerId": worker_id, "requestId": request_id},
+            )
+        if str(request["status"]) != APPROVAL_STATUS_PENDING:
+            return request
+        now = utc_now()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE approval_requests
+                SET status = ?, decided_at = ?, decision = ?, selected_option_id = ?, selected_alias = ?, note = ?
+                WHERE request_id = ? AND worker_id = ?
+                """,
+                (
+                    APPROVAL_STATUS_CANCELED,
+                    now,
+                    decision,
+                    None,
+                    None,
+                    note,
+                    request_id,
+                    worker_id,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT *
+                FROM approval_requests
+                WHERE request_id = ? AND worker_id = ?
+                """,
+                (request_id, worker_id),
+            ).fetchone()
+        return _deserialize_approval_row(_row_to_dict(row)) or {}
+
     def register_handoff_snapshot(
         self,
         *,
@@ -1051,7 +1097,7 @@ class StateStore:
             raise SubagentError(
                 code="WORKER_NOT_FOUND",
                 message=f"Worker not found: {worker_id}",
-                details={"workerId": worker_id},
+                details={"workerId": worker_id, "stateDbPath": str(self.db_path)},
             )
         with self.connection() as conn:
             row = conn.execute(

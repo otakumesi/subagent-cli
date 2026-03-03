@@ -171,6 +171,52 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(load_updates), 1)
 
+    def test_permission_flow_survives_runtime_restart_without_orphan_pending(self) -> None:
+        worker_id = self.start_worker()
+        first = self.invoke(["send", "--worker-id", worker_id, "--text", "first turn", "--json"])
+        self.assertEqual(first.exit_code, 0)
+
+        shown = self.invoke(["worker", "show", worker_id, "--json"])
+        self.assertEqual(shown.exit_code, 0)
+        runtime_pid = int(json.loads(shown.stdout)["data"]["runtimePid"])
+        os.kill(runtime_pid, signal.SIGKILL)
+        time.sleep(0.3)
+
+        sent = self.invoke(["send", "--worker-id", worker_id, "--text", "needs permission", "--json"])
+        self.assertEqual(sent.exit_code, 0)
+        sent_payload = json.loads(sent.stdout)
+        self.assertEqual(sent_payload["type"], "turn.waited")
+        self.assertEqual(sent_payload["data"]["state"], "waiting_approval")
+        self.assertEqual(sent_payload["data"]["matchedEvent"]["type"], "approval.requested")
+        request_id = str(sent_payload["data"]["requestId"])
+
+        inspected_pending = self.invoke(["worker", "inspect", worker_id, "--json"])
+        self.assertEqual(inspected_pending.exit_code, 0)
+        pending_payload = json.loads(inspected_pending.stdout)
+        self.assertEqual(len(pending_payload["data"]["pendingApprovals"]), 1)
+        self.assertEqual(pending_payload["data"]["pendingApprovals"][0]["requestId"], request_id)
+
+        approved = self.invoke(
+            [
+                "approve",
+                "--worker-id",
+                worker_id,
+                "--request",
+                request_id,
+                "--option-id",
+                "allow",
+                "--json",
+            ]
+        )
+        self.assertEqual(approved.exit_code, 0)
+        approve_payload = json.loads(approved.stdout)
+        self.assertEqual(approve_payload["type"], "approval.decided")
+
+        inspected = self.invoke(["worker", "inspect", worker_id, "--json"])
+        self.assertEqual(inspected.exit_code, 0)
+        inspect_payload = json.loads(inspected.stdout)
+        self.assertEqual(len(inspect_payload["data"]["pendingApprovals"]), 0)
+
     def test_permission_request_is_resolved_via_approve_command(self) -> None:
         worker_id = self.start_worker()
         sent = self.invoke(["send", "--worker-id", worker_id, "--text", "needs permission", "--json"])
@@ -275,9 +321,11 @@ class AcpBackendIntegrationTests(unittest.TestCase):
         sent_payload = json.loads(sent.stdout)
         self.assertEqual(sent_payload["type"], "turn.waited")
         self.assertEqual(sent_payload["data"]["matchedEvent"]["type"], "turn.completed")
+        completed_turn_id = str(sent_payload["data"]["turnId"])
 
         store = StateStore(self.state_dir / "state.db")
         store.bootstrap()
+        store.set_worker_active_turn(worker_id, completed_turn_id)
         store.update_worker_state(worker_id, next_state="running")
 
         cancel = self.invoke(["cancel", "--worker-id", worker_id, "--reason", "late cancel", "--json"])

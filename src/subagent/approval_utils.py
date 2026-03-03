@@ -7,6 +7,33 @@ from typing import Any
 from .errors import SubagentError
 
 
+_DECISION_SYNONYMS: dict[str, str] = {
+    "approve": "allow",
+    "approved": "allow",
+    "accept": "allow",
+    "accepted": "allow",
+    "yes": "allow",
+    "y": "allow",
+    "permit": "allow",
+    "grant": "allow",
+    "reject": "deny",
+    "rejected": "deny",
+    "deny": "deny",
+    "denied": "deny",
+    "no": "deny",
+    "n": "deny",
+    "block": "deny",
+}
+
+
+def _lookup_case_insensitive(options: dict[str, dict[str, Any]], value: str) -> dict[str, Any] | None:
+    lowered = value.casefold()
+    for key, option in options.items():
+        if key.casefold() == lowered:
+            return option
+    return None
+
+
 def resolve_option(
     request: dict[str, Any],
     *,
@@ -36,7 +63,18 @@ def resolve_option(
     elif alias:
         selected = by_alias.get(alias)
     elif decision:
-        selected = by_alias.get(decision) or by_id.get(decision)
+        raw = decision.strip()
+        selected = by_alias.get(raw) or by_id.get(raw)
+        if selected is None:
+            selected = _lookup_case_insensitive(by_alias, raw) or _lookup_case_insensitive(by_id, raw)
+        if selected is None:
+            synonym = _DECISION_SYNONYMS.get(raw.casefold())
+            if synonym is not None:
+                selected = by_alias.get(synonym) or by_id.get(synonym)
+                if selected is None:
+                    selected = _lookup_case_insensitive(by_alias, synonym) or _lookup_case_insensitive(
+                        by_id, synonym
+                    )
 
     if selected is None:
         raise SubagentError(
@@ -54,4 +92,3 @@ def resolve_option(
     selected_alias_value = str(selected_alias) if isinstance(selected_alias, str) else None
     resolved_decision = decision or selected_alias_value or selected_option_id
     return selected_option_id, selected_alias_value, resolved_decision
-

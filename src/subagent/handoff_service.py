@@ -114,7 +114,7 @@ def create_handoff(
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     events = store.list_worker_events(worker_id)
     task = _pick_task_from_events(events)
@@ -140,7 +140,11 @@ def create_handoff(
         for req in pending_requests
     ]
 
-    root = resolve_handoffs_dir(handoffs_dir)
+    if handoffs_dir is None:
+        # Keep handoff artifacts colocated with the active state DB.
+        root = store.db_path.parent / "handoffs"
+    else:
+        root = resolve_handoffs_dir(handoffs_dir)
     snapshot_id = f"hs_{uuid.uuid4().hex[:10]}"
     snapshot_dir = root / worker_id / snapshot_id
     snapshot_dir.mkdir(parents=True, exist_ok=True)

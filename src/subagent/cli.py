@@ -263,6 +263,25 @@ def _store(*, json_output: bool, workspace: Path | None = None) -> StateStore:
     raise AssertionError("unreachable")
 
 
+def _resolve_continue_store_workspace(cwd: Path | None, from_handoff: Path | None) -> Path | None:
+    if cwd is not None:
+        return resolve_workspace_path(cwd)
+    if from_handoff is None:
+        return None
+    checkpoint_path = from_handoff.expanduser().resolve().parent / "checkpoint.json"
+    if not checkpoint_path.exists():
+        return None
+    try:
+        raw = checkpoint_path.read_text(encoding="utf-8")
+        checkpoint = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    checkpoint_cwd = checkpoint.get("cwd") if isinstance(checkpoint, dict) else None
+    if isinstance(checkpoint_cwd, str) and checkpoint_cwd.strip():
+        return resolve_workspace_path(Path(checkpoint_cwd))
+    return None
+
+
 def _is_param_default(ctx: typer.Context, name: str) -> bool:
     source = ctx.get_parameter_source(name)
     return source == click.core.ParameterSource.DEFAULT
@@ -882,6 +901,7 @@ def send(
         "--debug-mode/--no-debug-mode",
         help="Enable local simulation mode for debug/testing.",
     ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
@@ -1020,7 +1040,10 @@ def send(
             if not json_output:
                 _emit_shell_pitfall_warning(warning)
 
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     config = _load_config_or_exit(config_path, json_output=json_output)
     if blocks is None:
         blocks = _parse_blocks_json_or_exit(blocks_json, json_output=json_output)
@@ -1118,6 +1141,7 @@ def watch(
     ),
     ndjson: bool = typer.Option(False, "--ndjson", help="Emit one normalized event per line"),
     raw: bool = typer.Option(False, "--raw", help="Include raw payload when available"),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     if ndjson and json_output:
@@ -1128,7 +1152,10 @@ def watch(
             ),
             json_output=True,
         )
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         events = watch_events(
             store,
@@ -1206,6 +1233,7 @@ def wait(
             "(file path or '-'; JSON key is `workerId`, CLI flag is `--worker-id`)."
         ),
     ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
     try:
@@ -1278,7 +1306,10 @@ def wait(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     if after_latest and from_event_id is None:
         latest_event = store.get_latest_worker_event(worker_id)
         if latest_event is not None:
@@ -1305,7 +1336,11 @@ def approve(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker-id", help="Worker ID"),
     request_id: str | None = typer.Option(None, "--request", help="Approval request ID"),
-    decision: str | None = typer.Option(None, "--decision", help="Decision alias"),
+    decision: str | None = typer.Option(
+        None,
+        "--decision",
+        help="Decision alias (for example: allow/deny or approve/reject).",
+    ),
     option_id: str | None = typer.Option(None, "--option-id", help="Approval option id"),
     alias: str | None = typer.Option(None, "--alias", help="Approval option alias"),
     note: str | None = typer.Option(None, "--note", help="Decision note"),
@@ -1317,6 +1352,7 @@ def approve(
             "(file path or '-'; JSON key is `workerId`, CLI flag is `--worker-id`)."
         ),
     ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
@@ -1362,7 +1398,10 @@ def approve(
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     config = _load_config_or_exit(config_path, json_output=json_output)
     try:
         payload = approve_request(
@@ -1389,10 +1428,14 @@ def approve(
 def cancel(
     worker_id: str = typer.Option(..., "--worker-id", help="Worker ID"),
     reason: str | None = typer.Option(None, "--reason", help="Cancel reason"),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     config = _load_config_or_exit(config_path, json_output=json_output)
     try:
         payload = cancel_turn(
@@ -1518,9 +1561,13 @@ def worker_start(
 @worker_app.command("list")
 def worker_list(
     controller_id: str | None = typer.Option(None, "--controller-id", help="Filter by controller ID"),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         items = list_workers(store, controller_id=controller_id)
     except SubagentError as error:
@@ -1543,9 +1590,13 @@ def worker_list(
 @worker_app.command("show")
 def worker_show(
     worker_id: str = typer.Argument(..., help="Worker ID"),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         payload = show_worker(store, worker_id)
     except SubagentError as error:
@@ -1579,9 +1630,13 @@ def worker_inspect(
         "--event-type",
         help="Filter events by type (repeatable).",
     ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     effective_limit = tail if tail is not None else events_limit
     effective_event_types = event_types or None
     try:
@@ -1610,9 +1665,13 @@ def worker_inspect(
 def worker_stop(
     worker_id: str = typer.Argument(..., help="Worker ID"),
     force: bool = typer.Option(False, "--force", help="Force transition to stopped"),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         payload = stop_worker(store, worker_id, force=force)
     except SubagentError as error:
@@ -1632,9 +1691,13 @@ def worker_handoff(
         "--handoffs-dir",
         help="Override handoff storage directory",
     ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace root for state resolution."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
-    store = _store(json_output=json_output)
+    store = _store(
+        json_output=json_output,
+        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+    )
     try:
         payload = create_handoff(
             store,
@@ -1658,7 +1721,14 @@ def worker_continue(
     launcher: str | None = typer.Option(None, "--launcher", help="Launcher override"),
     profile: str | None = typer.Option(None, "--profile", help="Profile override"),
     packs: list[str] = typer.Option([], "--pack", help="Pack override (repeatable)"),
-    cwd: Path | None = typer.Option(None, "--cwd", help="Target working directory"),
+    cwd: Path | None = typer.Option(
+        None,
+        "--cwd",
+        help=(
+            "Target working directory and state scope. "
+            "Defaults to checkpoint cwd when --from-handoff is used."
+        ),
+    ),
     label: str | None = typer.Option(None, "--label", help="Target worker label"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller override"),
     handoffs_dir: Path | None = typer.Option(
@@ -1676,7 +1746,7 @@ def worker_continue(
 ) -> None:
     store = _store(
         json_output=json_output,
-        workspace=resolve_workspace_path(cwd) if cwd is not None else None,
+        workspace=_resolve_continue_store_workspace(cwd, from_handoff),
     )
     config = _load_config_or_exit(config_path, json_output=json_output)
     execution_mode = "simulate" if debug_mode else "strict"

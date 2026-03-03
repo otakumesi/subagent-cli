@@ -58,7 +58,10 @@ def _classify_backend_unavailable(error: str | None, *, log_tail: str | None = N
     if any(token in lowered for token in ("timed out", "timeout")):
         return (
             "timeout",
-            "Runtime startup timed out. Check runtime logs and launcher health, then retry.",
+            (
+                "Runtime startup timed out. Check runtime logs and launcher health, then retry. "
+                "If running in a sandboxed manager, retry the same command outside sandbox."
+            ),
         )
     if any(token in lowered for token in ("no such file", "not found", "executable file")):
         return (

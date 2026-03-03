@@ -47,7 +47,7 @@ def resolve_worker_controller_id(
                 "Controller could not be resolved. Set SUBAGENT_CTL_* env vars, "
                 "use --controller-id, or run `subagent controller init` first."
             ),
-            details={"workspaceKey": str(workspace)},
+            details={"workspaceKey": str(workspace), "stateDbPath": str(store.db_path)},
         )
 
     if env_handle is not None and "epoch" in env_handle and "token" in env_handle:
@@ -82,8 +82,16 @@ def resolve_worker_controller_id(
     if controller is None:
         raise SubagentError(
             code="CONTROLLER_NOT_FOUND",
-            message=f"Controller not found: {target_controller_id}",
-            details={"controllerId": target_controller_id},
+            message=(
+                f"Controller not found: {target_controller_id}. "
+                "If running from another directory, pass --cwd <workspace> "
+                "or set SUBAGENT_STATE_DIR."
+            ),
+            details={
+                "controllerId": target_controller_id,
+                "workspaceKey": str(workspace),
+                "stateDbPath": str(store.db_path),
+            },
         )
     return target_controller_id
 
@@ -288,7 +296,7 @@ def show_worker(store: StateStore, worker_id: str) -> dict[str, Any]:
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     worker = _resync_stale_runtime_state(store, worker)
     return {
@@ -342,7 +350,7 @@ def stop_worker(store: StateStore, worker_id: str, *, force: bool = False) -> di
         raise SubagentError(
             code="WORKER_NOT_FOUND",
             message=f"Worker not found: {worker_id}",
-            details={"workerId": worker_id},
+            details={"workerId": worker_id, "stateDbPath": str(store.db_path)},
         )
     if worker.get("runtime_socket"):
         stop_worker_runtime(store, worker_id=worker_id, reason="worker stopped by manager")
