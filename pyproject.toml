@@ -1,6 +1,6 @@
 [project]
 name = "subagent-cli"
-version = "0.1.5"
+version = "0.1.6"
 description = "Protocol-agnostic worker orchestration CLI"
 readme = "README.md"
 requires-python = ">=3.11"
