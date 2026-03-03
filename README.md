@@ -110,17 +110,18 @@ Before execution:
 During execution:
 
 4. Start and coordinate workers with subagent-cli.
-5. Use `send` as the default turn driver (`send` waits by default).
-6. If `matchedEvent.type` is `approval.requested`, run `approve` and continue with `send`.
-7. Use `watch` only when detailed event streaming or debugging is needed.
-8. Use handoff/continue when context gets large.
-9. Require workers to report: goal, findings, proposal, risks, validation, next step.
-10. Respond to worker proposals with: decision, reason, what is good, what is missing, what should change, and next action.
+5. In every worker instruction, explicitly state which skills the worker should use for the task before implementation.
+6. Use `send` as the default turn driver (`send` waits by default).
+7. If `matchedEvent.type` is `approval.requested`, run `approve` and continue with `send`.
+8. Use `watch` only when detailed event streaming or debugging is needed.
+9. Use handoff/continue when context gets large.
+10. Require workers to report: goal, findings, proposal, risks, validation, next step.
+11. Respond to worker proposals with: decision, reason, what is good, what is missing, what should change, and next action.
 
 Before reporting completion:
 
-11. Verify results with tests or checks.
-12. Confirm the final output is integrated, validated, and aligned with the task objective.
+12. Verify results with tests or checks.
+13. Confirm the final output is integrated, validated, and aligned with the task objective.
 
 If worker startup or turn operations fail due to sandbox limits, request approval for out-of-sandbox execution and retry.
 
