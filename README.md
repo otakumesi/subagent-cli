@@ -150,7 +150,7 @@ subagent send --input - --json <<'JSON'
 }
 JSON
 ```
-`workerId` is the canonical JSON key (`worker` is accepted as a compatibility alias).
+`workerId` is required in JSON input payloads.
 
 Manual wait mode (advanced cursor control) still exists:
 ```bash

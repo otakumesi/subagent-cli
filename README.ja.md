@@ -150,7 +150,7 @@ subagent send --input - --json <<'JSON'
 }
 JSON
 ```
-JSON の正規キーは `workerId` です（互換のため `worker` も受け付けます）。
+JSON 入力では `workerId` が必須です。
 
 手動待機モード（高度なカーソル制御）:
 ```bash

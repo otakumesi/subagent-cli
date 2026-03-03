@@ -264,7 +264,7 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(payload["type"], "turn.accepted")
         self.assertNotIn("warnings", payload["data"])
 
-    def test_send_input_accepts_worker_alias(self) -> None:
+    def test_send_input_rejects_worker_alias(self) -> None:
         worker_id = self.start_worker()
         payload_path = self.root / "send-input-worker-alias.json"
         payload_path.write_text(
@@ -279,10 +279,11 @@ class TurnCommandTests(unittest.TestCase):
             encoding="utf-8",
         )
         send_result = self.invoke(["send", "--input", str(payload_path), "--json"])
-        self.assertEqual(send_result.exit_code, 0)
+        self.assertEqual(send_result.exit_code, 1)
         payload = json.loads(send_result.stdout)
-        self.assertEqual(payload["type"], "turn.accepted")
-        self.assertEqual(payload["data"]["workerId"], worker_id)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "INVALID_INPUT")
+        self.assertIn("not supported", payload["error"]["message"])
 
     def test_send_input_rejects_conflicting_worker_fields(self) -> None:
         worker_id = self.start_worker()
@@ -304,7 +305,7 @@ class TurnCommandTests(unittest.TestCase):
         payload = json.loads(send_result.stdout)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "INVALID_INPUT")
-        self.assertIn("must match", payload["error"]["message"])
+        self.assertIn("not supported", payload["error"]["message"])
 
     def test_send_with_wait_returns_matched_event(self) -> None:
         worker_id = self.start_worker()
@@ -382,7 +383,7 @@ class TurnCommandTests(unittest.TestCase):
         self.assertEqual(wait_payload["type"], "event.matched")
         self.assertEqual(wait_payload["data"]["type"], "approval.requested")
 
-    def test_wait_input_accepts_worker_alias(self) -> None:
+    def test_wait_input_rejects_worker_alias(self) -> None:
         worker_id = self.start_worker()
         self.invoke(
             [
@@ -406,10 +407,11 @@ class TurnCommandTests(unittest.TestCase):
             encoding="utf-8",
         )
         wait_result = self.invoke(["wait", "--input", str(payload_path), "--json"])
-        self.assertEqual(wait_result.exit_code, 0)
+        self.assertEqual(wait_result.exit_code, 1)
         wait_payload = json.loads(wait_result.stdout)
-        self.assertEqual(wait_payload["type"], "event.matched")
-        self.assertEqual(wait_payload["data"]["type"], "approval.requested")
+        self.assertFalse(wait_payload["ok"])
+        self.assertEqual(wait_payload["error"]["code"], "INVALID_INPUT")
+        self.assertIn("not supported", wait_payload["error"]["message"])
 
     def test_wait_supports_turn_end_alias(self) -> None:
         worker_id = self.start_worker()
@@ -544,7 +546,7 @@ class TurnCommandTests(unittest.TestCase):
         option_payload = json.loads(option_approve.stdout)
         self.assertEqual(option_payload["data"]["optionId"], "deny")
 
-    def test_approve_input_accepts_worker_alias(self) -> None:
+    def test_approve_input_rejects_worker_alias(self) -> None:
         worker_id = self.start_worker()
         send_result = self.invoke(
             [
@@ -574,10 +576,11 @@ class TurnCommandTests(unittest.TestCase):
         )
 
         approve_result = self.invoke(["approve", "--input", str(payload_path), "--json"])
-        self.assertEqual(approve_result.exit_code, 0)
+        self.assertEqual(approve_result.exit_code, 1)
         approve_payload = json.loads(approve_result.stdout)
-        self.assertEqual(approve_payload["type"], "approval.decided")
-        self.assertEqual(approve_payload["data"]["decision"], "allow")
+        self.assertFalse(approve_payload["ok"])
+        self.assertEqual(approve_payload["error"]["code"], "INVALID_INPUT")
+        self.assertIn("not supported", approve_payload["error"]["message"])
 
     def test_cancel_turn_from_waiting_approval(self) -> None:
         worker_id = self.start_worker()

@@ -277,13 +277,12 @@ def _require_value(value: Any, *, name: str, json_output: bool) -> Any:
 
 def _read_worker_id_from_input(payload: dict[str, Any]) -> str | None:
     worker_id = read_string(payload, "workerId")
-    worker_alias = read_string(payload, "worker")
-    if worker_id is not None and worker_alias is not None and worker_id != worker_alias:
+    if "worker" in payload:
         raise SubagentError(
             code="INVALID_INPUT",
-            message="`workerId` and `worker` must match when both are provided",
+            message="`worker` is not supported in `--input`; use `workerId`",
         )
-    return worker_id or worker_alias
+    return worker_id
 
 
 _TEXT_SHELL_RISK_TOKENS: tuple[tuple[str, str], ...] = (
@@ -852,7 +851,7 @@ def send(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+        help="Read command JSON from file path or '-'. Use `workerId`.",
     ),
     debug_mode: bool = typer.Option(
         False,
@@ -891,7 +890,6 @@ def send(
             },
             mapping={
                 "workerId": "worker_id",
-                "worker": "worker_id",
                 "text": "text",
                 "blocks": "blocks_json",
                 "debugMode": "debug_mode",
@@ -1133,7 +1131,7 @@ def wait(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+        help="Read command JSON from file path or '-'. Use `workerId`.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
@@ -1157,7 +1155,6 @@ def wait(
             },
             mapping={
                 "workerId": "worker_id",
-                "worker": "worker_id",
                 "until": "until",
                 "fromEventId": "from_event_id",
                 "timeoutSeconds": "timeout_seconds",
@@ -1232,7 +1229,7 @@ def approve(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId` (`worker` alias supported).",
+        help="Read command JSON from file path or '-'. Use `workerId`.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
@@ -1259,7 +1256,6 @@ def approve(
             },
             mapping={
                 "workerId": "worker_id",
-                "worker": "worker_id",
                 "requestId": "request_id",
                 "decision": "decision",
                 "optionId": "option_id",
