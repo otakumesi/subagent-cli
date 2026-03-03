@@ -141,16 +141,20 @@ subagent send --worker <worker-id> --text "<instruction>" --json
 subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 ```
 
-シェル解釈事故を避ける安全な入力方法（`--input` 推奨）:
+複数行やシェル解釈事故を避ける安全な入力方法（推奨）:
 ```bash
-subagent send --input - --json <<'JSON'
-{
-  "workerId": "<worker-id>",
-  "text": "`echo hello` や $(uname) を文字列として扱い、実行しないこと。"
-}
-JSON
+cat > instruction.txt <<'TEXT'
+`echo hello` や $(uname) を文字列として扱い、実行しないこと。
+TEXT
+subagent send --worker <worker-id> --text-file ./instruction.txt --json
 ```
-JSON 入力では `workerId` が必須です。
+
+stdin 版:
+```bash
+cat ./instruction.txt | subagent send --worker <worker-id> --text-stdin --json
+```
+
+高度な自動化では、構造化 JSON 入力 `--input` も使えます（`workerId` 必須）。
 
 手動待機モード（高度なカーソル制御）:
 ```bash

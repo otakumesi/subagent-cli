@@ -96,8 +96,8 @@ class PromptAndContractTests(unittest.TestCase):
         self.assertIn("subagent send --worker", manager_prompt)
         self.assertIn("--no-wait", manager_prompt)
         self.assertIn("--wait-no-progress-timeout-seconds", manager_prompt)
-        self.assertIn("quoted heredoc", manager_prompt)
-        self.assertIn("workerId", manager_prompt)
+        self.assertIn("--text-file", manager_prompt)
+        self.assertIn("--text-stdin", manager_prompt)
 
         worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
         self.assertEqual(worker.exit_code, 0)

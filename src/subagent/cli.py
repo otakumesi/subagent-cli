@@ -285,6 +285,17 @@ def _read_worker_id_from_input(payload: dict[str, Any]) -> str | None:
     return worker_id
 
 
+def _read_text_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise SubagentError(
+            code="INVALID_INPUT",
+            message=f"Failed to read `--text-file`: {path}",
+            details={"path": str(path), "error": str(error)},
+        ) from error
+
+
 _TEXT_SHELL_RISK_TOKENS: tuple[tuple[str, str], ...] = (
     ("backticks", "`"),
     ("commandSubstitution", "$("),
@@ -311,7 +322,7 @@ def _shell_pitfall_warning(risks: list[str]) -> dict[str, Any]:
         "code": "TEXT_SHELL_PITFALL",
         "message": (
             "`--text` may be interpreted by your shell before subagent runs. "
-            "Prefer `--input -` with a quoted heredoc or `--input <json-file>`."
+            "Prefer `--text-file` or `--text-stdin` for multiline/shell-sensitive input."
         ),
         "riskCodes": risks,
     }
@@ -811,11 +822,9 @@ def controller_release(
 def send(
     ctx: typer.Context,
     worker_id: str | None = typer.Option(None, "--worker", help="Worker ID"),
-    text: str | None = typer.Option(
-        None,
-        "--text",
-        help="Instruction text. Prefer `--input` for shell-safe multiline/special characters.",
-    ),
+    text: str | None = typer.Option(None, "--text", help="Instruction text"),
+    text_file: Path | None = typer.Option(None, "--text-file", help="Read instruction text from UTF-8 file."),
+    text_stdin: bool = typer.Option(False, "--text-stdin", help="Read instruction text from stdin."),
     blocks_json: str | None = typer.Option(
         None,
         "--blocks",
@@ -851,7 +860,10 @@ def send(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId`.",
+        help=(
+            "Advanced: structured JSON input for complex workflows "
+            "(file path or '-'; use `workerId`)."
+        ),
     ),
     debug_mode: bool = typer.Option(
         False,
@@ -861,7 +873,6 @@ def send(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
-    text_from_flag = not _is_param_default(ctx, "text")
     try:
         input_payload = load_input_payload(input_path)
         reject_duplicates(
@@ -869,6 +880,8 @@ def send(
             flag_values={
                 "worker_id": worker_id,
                 "text": text,
+                "text_file": str(text_file) if text_file is not None else None,
+                "text_stdin": text_stdin,
                 "blocks_json": blocks_json,
                 "debug_mode": debug_mode,
                 "wait_for_match": wait_for_match,
@@ -879,6 +892,8 @@ def send(
             value_is_default={
                 "worker_id": _is_param_default(ctx, "worker_id"),
                 "text": _is_param_default(ctx, "text"),
+                "text_file": _is_param_default(ctx, "text_file"),
+                "text_stdin": _is_param_default(ctx, "text_stdin"),
                 "blocks_json": _is_param_default(ctx, "blocks_json"),
                 "debug_mode": _is_param_default(ctx, "debug_mode"),
                 "wait_for_match": _is_param_default(ctx, "wait_for_match"),
@@ -899,9 +914,10 @@ def send(
                 "waitNoProgressTimeoutSeconds": "wait_no_progress_timeout_seconds",
             },
         )
+        text_from_input: str | None = None
         if input_payload is not None:
             worker_id = _read_worker_id_from_input(input_payload) or worker_id
-            text = read_string(input_payload, "text") or text
+            text_from_input = read_string(input_payload, "text")
             blocks = read_blocks(input_payload, "blocks")
             payload_debug_mode = read_bool(input_payload, "debugMode")
             if payload_debug_mode is not None:
@@ -944,12 +960,47 @@ def send(
             )
 
         worker_id = _require_value(worker_id, name="worker", json_output=json_output)
-        text = _require_value(text, name="text", json_output=json_output)
+        text_candidates: list[tuple[str, str]] = []
+        if text_from_input is not None:
+            text_candidates.append(("input.text", text_from_input))
+        if not _is_param_default(ctx, "text"):
+            text_candidates.append(("--text", text or ""))
+        if not _is_param_default(ctx, "text_file"):
+            if text_file is None:
+                emit_error_and_exit(
+                    SubagentError(code="INVALID_INPUT", message="`--text-file` requires a path"),
+                    json_output=json_output,
+                )
+            text_candidates.append(("--text-file", _read_text_file(text_file)))
+        if text_stdin:
+            import sys
+
+            text_candidates.append(("--text-stdin", sys.stdin.read()))
+        if not text_candidates:
+            emit_error_and_exit(
+                SubagentError(
+                    code="INVALID_INPUT",
+                    message="Instruction text is required (`--text`, `--text-file`, `--text-stdin`, or `--input`).",
+                ),
+                json_output=json_output,
+            )
+        if len(text_candidates) > 1:
+            emit_error_and_exit(
+                SubagentError(
+                    code="INVALID_INPUT",
+                    message=(
+                        "Specify exactly one instruction text source "
+                        "(`--text`, `--text-file`, `--text-stdin`, or `--input` text)."
+                    ),
+                ),
+                json_output=json_output,
+            )
+        text_source, text = text_candidates[0]
     except SubagentError as error:
         emit_error_and_exit(error, json_output=json_output)
 
     warnings: list[dict[str, Any]] = []
-    if text_from_flag and isinstance(text, str):
+    if text_source == "--text" and isinstance(text, str):
         shell_risks = _detect_text_shell_risks(text)
         if shell_risks:
             warning = _shell_pitfall_warning(shell_risks)
@@ -1131,7 +1182,10 @@ def wait(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId`.",
+        help=(
+            "Advanced: structured JSON input for complex workflows "
+            "(file path or '-'; use `workerId`)."
+        ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
 ) -> None:
@@ -1229,7 +1283,10 @@ def approve(
     input_path: str | None = typer.Option(
         None,
         "--input",
-        help="Read command JSON from file path or '-'. Use `workerId`.",
+        help=(
+            "Advanced: structured JSON input for complex workflows "
+            "(file path or '-'; use `workerId`)."
+        ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
@@ -1346,7 +1403,11 @@ def worker_start(
         "--debug-mode/--no-debug-mode",
         help="Start worker without backend runtime (for debug/testing).",
     ),
-    input_path: str | None = typer.Option(None, "--input", help="Read command JSON from file path or '-'"),
+    input_path: str | None = typer.Option(
+        None,
+        "--input",
+        help="Advanced: structured JSON input for complex workflows (file path or '-').",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:

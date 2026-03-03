@@ -24,9 +24,8 @@ Read this quick workflow first:
 
 Operational rules:
 - Keep instructions short, concrete, and outcome-oriented.
-- Use `--json` for machine-readable responses and `--input` for JSON-driven calls.
-- In `--input` payloads, use `workerId` as the worker key.
-- For shell-sensitive text (backticks, `$()`, redirects), prefer `--input -` with a quoted heredoc over inline `--text`.
+- Use `--json` for machine-readable responses.
+- For multiline or shell-sensitive text, prefer `--text-file` or `--text-stdin` over inline `--text`.
 - Prefer `send` for task dispatch when you need a single round-trip result (`--no-wait` for fire-and-return).
 - For long-running turns, set no-progress guards (`--wait-no-progress-timeout-seconds` on `send`, `--no-progress-timeout-seconds` on `wait`).
 - If you need manual waits, use `wait` defaults (`--until {DEFAULT_WAIT_UNTIL}`, `--timeout-seconds {DEFAULT_WAIT_TIMEOUT_SECONDS:.0f}`).

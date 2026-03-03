@@ -141,16 +141,20 @@ Opt out of waiting when needed:
 subagent send --worker <worker-id> --text "<instruction>" --no-wait --json
 ```
 
-For shell-safe input (recommended when text includes backticks, `$()`, redirects, etc.):
+For multiline or shell-safe input (recommended):
 ```bash
-subagent send --input - --json <<'JSON'
-{
-  "workerId": "<worker-id>",
-  "text": "Use commands like `echo hello` literally; do not execute them."
-}
-JSON
+cat > instruction.txt <<'TEXT'
+Use commands like `echo hello` literally; do not execute them.
+TEXT
+subagent send --worker <worker-id> --text-file ./instruction.txt --json
 ```
-`workerId` is required in JSON input payloads.
+
+stdin variant:
+```bash
+cat ./instruction.txt | subagent send --worker <worker-id> --text-stdin --json
+```
+
+Advanced automation can still use structured JSON input via `--input` (`workerId` required).
 
 Manual wait mode (advanced cursor control) still exists:
 ```bash

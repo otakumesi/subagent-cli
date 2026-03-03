@@ -166,6 +166,11 @@ class CliCommandTests(unittest.TestCase):
         self.assertIn("--no-wait", result.stdout)
         self.assertIn("--wait-until", result.stdout)
         self.assertIn("wait-timeout", result.stdout)
+        self.assertIn("--text-file", result.stdout)
+        self.assertIn("--text-stdin", result.stdout)
+        self.assertIn("--input", result.stdout)
+        self.assertIn("structured JSON", result.stdout)
+        self.assertIn("complex", result.stdout)
 
     def test_wait_help_lists_alias_and_timeout_behavior(self) -> None:
         result = self.invoke(["wait", "--help"])

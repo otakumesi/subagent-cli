@@ -57,13 +57,20 @@ class TurnCommandTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def invoke(self, args: list[str], *, env: dict[str, str] | None = None):
+    def invoke(
+        self,
+        args: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        input_text: str | None = None,
+    ):
         merged_env = dict(self.base_env)
         if env:
             merged_env.update(env)
         return self.runner.invoke(
             app,
             args,
+            input=input_text,
             env=merged_env,
             catch_exceptions=False,
         )
@@ -243,6 +250,68 @@ class TurnCommandTests(unittest.TestCase):
         assert isinstance(risk_codes, list)
         self.assertIn("backticks", risk_codes)
         self.assertIn("commandSubstitution", risk_codes)
+
+    def test_send_with_text_file_succeeds(self) -> None:
+        worker_id = self.start_worker()
+        text_path = self.root / "instruction.txt"
+        text_path.write_text("STATUS: from text file", encoding="utf-8")
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text-file",
+                str(text_path),
+                "--debug-mode",
+                "--no-wait",
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        payload = json.loads(send_result.stdout)
+        self.assertEqual(payload["type"], "turn.accepted")
+        self.assertNotIn("warnings", payload["data"])
+
+    def test_send_with_text_stdin_succeeds(self) -> None:
+        worker_id = self.start_worker()
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text-stdin",
+                "--debug-mode",
+                "--no-wait",
+                "--json",
+            ],
+            input_text="STATUS: from stdin",
+        )
+        self.assertEqual(send_result.exit_code, 0)
+        payload = json.loads(send_result.stdout)
+        self.assertEqual(payload["type"], "turn.accepted")
+        self.assertNotIn("warnings", payload["data"])
+
+    def test_send_rejects_multiple_text_sources(self) -> None:
+        worker_id = self.start_worker()
+        text_path = self.root / "instruction-dup.txt"
+        text_path.write_text("duplicate source", encoding="utf-8")
+        send_result = self.invoke(
+            [
+                "send",
+                "--worker",
+                worker_id,
+                "--text",
+                "from text flag",
+                "--text-file",
+                str(text_path),
+                "--json",
+            ]
+        )
+        self.assertEqual(send_result.exit_code, 1)
+        payload = json.loads(send_result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "INVALID_INPUT")
+        self.assertIn("exactly one", payload["error"]["message"])
 
     def test_send_input_json_avoids_shell_pitfall_warning(self) -> None:
         worker_id = self.start_worker()
