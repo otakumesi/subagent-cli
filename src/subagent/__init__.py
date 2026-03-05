@@ -2,6 +2,6 @@
 
 from .constants import SCHEMA_VERSION
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 __all__ = ["SCHEMA_VERSION", "__version__"]
