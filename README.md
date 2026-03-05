@@ -59,7 +59,7 @@ pip install dist/subagent_cli-*.whl
 ```
 
 ## Terminal Demo 🎬
-[![asciicast](https://asciinema.org/a/Cxfk7i9wOOpZB17F.svg)](https://asciinema.org/a/Cxfk7i9wOOpZB17F)
+[![asciicast](https://asciinema.org/a/813713.svg)](https://asciinema.org/a/813713)
 
 ## Quick Start ⚡
 1. Bootstrap your local config.
