@@ -1611,12 +1611,12 @@ def worker_show(
 @worker_app.command("inspect")
 def worker_inspect(
     worker_id: str = typer.Argument(..., help="Worker ID"),
-    events_limit: int = typer.Option(20, "--events-limit", min=1, max=200, help="Number of recent events"),
+    events_limit: int = typer.Option(20, "--events-limit", min=1, max=1000, help="Number of recent events"),
     tail: int | None = typer.Option(
         None,
         "--tail",
         min=1,
-        max=200,
+        max=1000,
         help="Return latest N events (overrides --events-limit).",
     ),
     since: str | None = typer.Option(
