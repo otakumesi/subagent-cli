@@ -60,7 +60,7 @@ pip install dist/subagent_cli-*.whl
 
 ## ターミナルデモ 🎬
 録画した asciinema セッション:
-- https://asciinema.org/a/Cxfk7i9wOOpZB17F
+- [![asciicast](https://asciinema.org/a/Cxfk7i9wOOpZB17F.svg)](https://asciinema.org/a/Cxfk7i9wOOpZB17F)
 
 ## クイックスタート ⚡
 1. ローカル設定ファイルを初期化します。
