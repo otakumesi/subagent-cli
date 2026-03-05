@@ -18,22 +18,18 @@ launchers:
     command: codex-acp
     args: []
     env: {}
-profiles:
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
+roleHints:
   worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-packs:
-  repo-conventions:
-    description: Follow repo conventions
-    prompt: |
-      Keep changes small.
+    preferredLauncher: codex
+    delegationHint: "State goal and done conditions."
+    recommendedSkills:
+      - skill-creator
 defaults:
   launcher: codex
-  profile: worker-default
+  role: worker-default
 """
 
 
@@ -77,18 +73,14 @@ class CliCommandTests(unittest.TestCase):
         self.assertEqual(launcher_payload["type"], "launcher.listed")
         self.assertEqual(launcher_payload["data"]["count"], 1)
 
-        profile_result = self.invoke(["profile", "show", "worker-default", "--json"])
-        self.assertEqual(profile_result.exit_code, 0)
-        profile_payload = json.loads(profile_result.stdout)
-        self.assertTrue(profile_payload["ok"])
-        self.assertEqual(profile_payload["type"], "profile.shown")
-        self.assertEqual(profile_payload["data"]["name"], "worker-default")
-
-        pack_result = self.invoke(["pack", "list", "--json"])
-        self.assertEqual(pack_result.exit_code, 0)
-        pack_payload = json.loads(pack_result.stdout)
-        self.assertEqual(pack_payload["type"], "pack.listed")
-        self.assertEqual(pack_payload["data"]["count"], 1)
+        role_result = self.invoke(["role", "show", "worker-default", "--json"])
+        self.assertEqual(role_result.exit_code, 0)
+        role_payload = json.loads(role_result.stdout)
+        self.assertTrue(role_payload["ok"])
+        self.assertEqual(role_payload["type"], "role.shown")
+        self.assertEqual(role_payload["data"]["name"], "worker-default")
+        self.assertEqual(role_payload["data"]["delegationHint"], "State goal and done conditions.")
+        self.assertEqual(role_payload["data"]["recommendedSkills"], ["skill-creator"])
 
     def test_config_init_creates_file_and_requires_force_to_overwrite(self) -> None:
         config_out = self.root / "generated" / "config.yaml"
@@ -105,7 +97,8 @@ class CliCommandTests(unittest.TestCase):
         self.assertTrue(config_out.exists())
         generated = config_out.read_text(encoding="utf-8")
         self.assertIn("launchers:", generated)
-        self.assertIn("profiles:", generated)
+        self.assertIn("roleDefaults:", generated)
+        self.assertIn("roleHints:", generated)
         self.assertIn("defaults:", generated)
         self.assertIn("command: npx", generated)
         self.assertIn("@zed-industries/codex-acp", generated)
@@ -150,7 +143,7 @@ class CliCommandTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("instructed to", result.stdout)
         self.assertIn("use this tool as a manager agent", result.stdout)
-        self.assertIn("subagent prompt render --target", result.stdout)
+        self.assertIn("subagent prompt render", result.stdout)
         self.assertIn("send` now waits by default", result.stdout)
         self.assertIn("--no-wait", result.stdout)
 
@@ -221,21 +214,16 @@ class CliCommandTests(unittest.TestCase):
                             "env": {},
                         }
                     },
-                    "profiles": {
+                    "roleDefaults": {
+                        "promptLanguage": "en",
+                        "responseLanguage": "same_as_manager",
+                    },
+                    "roleHints": {
                         "worker-default": {
-                            "promptLanguage": "en",
-                            "responseLanguage": "same_as_manager",
-                            "defaultPacks": ["repo-conventions"],
-                            "bootstrap": "You are a worker subagent.",
+                            "preferredLauncher": "codex",
                         }
                     },
-                    "packs": {
-                        "repo-conventions": {
-                            "description": "Follow repo conventions",
-                            "prompt": "Keep changes small.",
-                        }
-                    },
-                    "defaults": {"launcher": "codex", "profile": "worker-default"},
+                    "defaults": {"launcher": "codex", "role": "worker-default"},
                 }
             ),
             encoding="utf-8",

@@ -1,12 +1,11 @@
-"""Prompt rendering helpers for manager/worker targets."""
+"""Prompt rendering helpers for manager target."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from .config import Pack, Profile, SubagentConfig
+from .config import SubagentConfig
 from .constants import DEFAULT_WAIT_TIMEOUT_SECONDS, DEFAULT_WAIT_UNTIL
-from .errors import SubagentError
 
 MANAGER_PROMPT_BASE = f"""You are a manager agent coordinating worker subagents with `subagent` CLI.
 
@@ -14,7 +13,7 @@ Read this quick workflow first:
 1. Initialize controller in the workspace:
    subagent controller init --cwd <workspace>
 2. Start a worker:
-   subagent worker start --cwd <workspace>
+   subagent worker start --cwd <workspace> [--role <role>]
 3. Send work and wait for a terminal-or-approval event:
    subagent send --worker-id <worker-id> --text "<instruction>" --json
 4. If approval is requested:
@@ -35,86 +34,48 @@ Operational rules:
 - Prefer strict mode for production; use `--debug-mode` only for local simulation/testing.
 """
 
-
-def _render_worker_prompt(profile: Profile, packs: list[Pack]) -> str:
+def _render_role_hints_section(config: SubagentConfig) -> str:
     lines: list[str] = []
-    if profile.bootstrap.strip():
-        lines.append(profile.bootstrap.strip())
-    else:
-        lines.append("You are a worker subagent.")
-    lines.append("Use STATUS:, ASK:, BLOCKED:, and DONE: prefixes when helpful.")
-    lines.append("Keep updates concise and action-oriented.")
-    if packs:
-        lines.append("")
-        lines.append("Additional pack instructions:")
-        for pack in packs:
-            lines.append(f"- Pack `{pack.name}`: {pack.description or '(no description)'}")
-            if pack.prompt.strip():
-                lines.append(pack.prompt.strip())
-    return "\n".join(lines).strip()
+    lines.append("Role hints:")
+    lines.append("- Role names are hints only; any custom role name is allowed.")
+    defaults_role = config.defaults.get("role")
+    if isinstance(defaults_role, str) and defaults_role.strip():
+        lines.append(f"- Default role: `{defaults_role.strip()}`")
+    defaults_launcher = config.defaults.get("launcher")
+    if isinstance(defaults_launcher, str) and defaults_launcher.strip():
+        lines.append(f"- Fallback launcher: `{defaults_launcher.strip()}`")
+    lines.append(
+        "- Language defaults: "
+        f"prompt=`{config.role_defaults.prompt_language}`, "
+        f"response=`{config.role_defaults.response_language}`"
+    )
+    if not config.role_hints:
+        lines.append("- No role hints defined in config.")
+        return "\n".join(lines)
+    lines.append("- Example role hints (not exhaustive):")
+    for name in sorted(config.role_hints.keys()):
+        role_hint = config.role_hints[name]
+        hint_parts: list[str] = []
+        if isinstance(role_hint.preferred_launcher, str) and role_hint.preferred_launcher.strip():
+            hint_parts.append(f"preferredLauncher=`{role_hint.preferred_launcher.strip()}`")
+        if isinstance(role_hint.prompt_language, str) and role_hint.prompt_language.strip():
+            hint_parts.append(f"promptLanguage=`{role_hint.prompt_language.strip()}`")
+        if isinstance(role_hint.response_language, str) and role_hint.response_language.strip():
+            hint_parts.append(f"responseLanguage=`{role_hint.response_language.strip()}`")
+        suffix = ", ".join(hint_parts) if hint_parts else "(no overrides)"
+        lines.append(f"  - `{name}`: {suffix}")
+        if isinstance(role_hint.delegation_hint, str) and role_hint.delegation_hint.strip():
+            lines.append(f"    delegationHint: {role_hint.delegation_hint.strip()}")
+        if role_hint.recommended_skills:
+            joined_skills = ", ".join(f"`{skill}`" for skill in role_hint.recommended_skills)
+            lines.append(f"    recommendedSkills: {joined_skills}")
+    return "\n".join(lines)
 
 
-def render_prompt(
-    config: SubagentConfig,
-    *,
-    target: str,
-    profile_name: str | None = None,
-    pack_names: list[str] | None = None,
-) -> dict[str, Any]:
-    if target not in {"manager", "worker"}:
-        raise SubagentError(
-            code="INVALID_ARGUMENT",
-            message=f"Unknown prompt target: {target}",
-            details={"target": target},
-        )
-
-    if target == "manager":
-        return {
-            "target": "manager",
-            "prompt": MANAGER_PROMPT_BASE,
-        }
-
-    selected_profile_name = profile_name
-    if selected_profile_name is None:
-        default_profile = config.defaults.get("profile")
-        if isinstance(default_profile, str) and default_profile:
-            selected_profile_name = default_profile
-    if selected_profile_name is None:
-        raise SubagentError(
-            code="PROFILE_NOT_FOUND",
-            message="Profile is required for worker prompt rendering.",
-        )
-    profile = config.profiles.get(selected_profile_name)
-    if profile is None:
-        raise SubagentError(
-            code="PROFILE_NOT_FOUND",
-            message=f"Profile not found: {selected_profile_name}",
-            details={"profile": selected_profile_name},
-        )
-
-    selected_pack_names = list(pack_names or [])
-    if not selected_pack_names:
-        selected_pack_names = list(profile.default_packs)
-        if not selected_pack_names:
-            defaults_packs = config.defaults.get("packs")
-            if isinstance(defaults_packs, list):
-                selected_pack_names = [str(item) for item in defaults_packs]
-
-    packs: list[Pack] = []
-    for pack_name in selected_pack_names:
-        pack = config.packs.get(pack_name)
-        if pack is None:
-            raise SubagentError(
-                code="PACK_NOT_FOUND",
-                message=f"Pack not found: {pack_name}",
-                details={"pack": pack_name},
-            )
-        packs.append(pack)
-
-    prompt = _render_worker_prompt(profile, packs)
+def render_prompt(config: SubagentConfig) -> dict[str, Any]:
+    prompt = MANAGER_PROMPT_BASE.rstrip()
+    prompt = f"{prompt}\n\n{_render_role_hints_section(config)}"
     return {
-        "target": "worker",
-        "profile": profile.name,
-        "packs": [pack.name for pack in packs],
+        "target": "manager",
         "prompt": prompt,
     }

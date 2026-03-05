@@ -19,22 +19,15 @@ launchers:
     command: codex-acp
     args: []
     env: {}
-profiles:
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
+roleHints:
   worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-packs:
-  repo-conventions:
-    description: Follow repo conventions
-    prompt: |
-      Keep changes small.
+    preferredLauncher: codex
 defaults:
   launcher: codex
-  profile: worker-default
+  role: worker-default
 """
 
 
@@ -104,21 +97,16 @@ class TurnCommandTests(unittest.TestCase):
                     "env": {},
                 }
             },
-            "profiles": {
+            "roleDefaults": {
+                "promptLanguage": "en",
+                "responseLanguage": "same_as_manager",
+            },
+            "roleHints": {
                 "worker-default": {
-                    "promptLanguage": "en",
-                    "responseLanguage": "same_as_manager",
-                    "defaultPacks": ["repo-conventions"],
-                    "bootstrap": "You are a worker subagent.",
+                    "preferredLauncher": "broken",
                 }
             },
-            "packs": {
-                "repo-conventions": {
-                    "description": "Follow repo conventions",
-                    "prompt": "Keep changes small.",
-                }
-            },
-            "defaults": {"launcher": "broken", "profile": "worker-default"},
+            "defaults": {"launcher": "broken", "role": "worker-default"},
         }
         broken_config_path.write_text(json.dumps(broken), encoding="utf-8")
         env = {"SUBAGENT_CONFIG": str(broken_config_path)}

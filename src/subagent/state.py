@@ -176,17 +176,13 @@ def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
 def _deserialize_worker_row(worker: dict[str, Any] | None) -> dict[str, Any] | None:
     if worker is None:
         return None
-    packs_raw = worker.get("packs_json")
-    packs: list[str] = []
-    if isinstance(packs_raw, str):
-        try:
-            parsed = json.loads(packs_raw)
-        except json.JSONDecodeError:
-            parsed = []
-        if isinstance(parsed, list):
-            packs = [str(item) for item in parsed]
     payload = dict(worker)
-    payload["packs"] = packs
+    role_raw = payload.get("profile")
+    if isinstance(role_raw, str) and role_raw:
+        payload["role"] = role_raw
+    else:
+        payload["role"] = "default"
+    payload.pop("profile", None)
     payload.pop("packs_json", None)
     return payload
 
@@ -528,8 +524,7 @@ class StateStore:
         *,
         controller_id: str,
         launcher: str,
-        profile: str,
-        packs: list[str],
+        role: str,
         cwd: str,
         label: str,
         session_id: str | None = None,
@@ -559,8 +554,8 @@ class StateStore:
                     controller_id,
                     label,
                     launcher,
-                    profile,
-                    json.dumps(packs, ensure_ascii=False),
+                    role,
+                    "[]",
                     cwd,
                     effective_session_id,
                     None,

@@ -1,4 +1,4 @@
-"""Config model and loader for launchers / profiles / packs."""
+"""Config model and loader for launchers / role hints / defaults."""
 
 from __future__ import annotations
 
@@ -44,6 +44,16 @@ def _ensure_string_list(value: Any, *, field_name: str) -> list[str]:
     return string_values
 
 
+def _ensure_string(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise SubagentError(
+            code="CONFIG_PARSE_ERROR",
+            message=f"`{field_name}` must be a string",
+            details={"field": field_name},
+        )
+    return value
+
+
 def _ensure_string_map(value: Any, *, field_name: str) -> dict[str, str]:
     if value is None:
         return {}
@@ -85,39 +95,40 @@ class Launcher:
 
 
 @dataclass(slots=True)
-class Profile:
-    name: str
+class RoleDefaults:
     prompt_language: str = "en"
     response_language: str = "same_as_manager"
-    auto_handoff: str | None = None
-    policy_preset: str | None = None
-    default_packs: list[str] = field(default_factory=list)
-    bootstrap: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name,
             "promptLanguage": self.prompt_language,
             "responseLanguage": self.response_language,
-            "autoHandoff": self.auto_handoff,
-            "policyPreset": self.policy_preset,
-            "defaultPacks": self.default_packs,
-            "bootstrap": self.bootstrap,
         }
 
 
 @dataclass(slots=True)
-class Pack:
+class RoleHint:
     name: str
-    description: str = ""
-    prompt: str = ""
+    preferred_launcher: str | None = None
+    prompt_language: str | None = None
+    response_language: str | None = None
+    delegation_hint: str | None = None
+    recommended_skills: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "name": self.name,
-            "description": self.description,
-            "prompt": self.prompt,
         }
+        if self.preferred_launcher is not None:
+            payload["preferredLauncher"] = self.preferred_launcher
+        if self.prompt_language is not None:
+            payload["promptLanguage"] = self.prompt_language
+        if self.response_language is not None:
+            payload["responseLanguage"] = self.response_language
+        if self.delegation_hint is not None:
+            payload["delegationHint"] = self.delegation_hint
+        payload["recommendedSkills"] = list(self.recommended_skills)
+        return payload
 
 
 @dataclass(slots=True)
@@ -125,9 +136,8 @@ class SubagentConfig:
     path: Path
     loaded: bool
     launchers: dict[str, Launcher] = field(default_factory=dict)
-    profiles: dict[str, Profile] = field(default_factory=dict)
-    packs: dict[str, Pack] = field(default_factory=dict)
-    policy_presets: dict[str, Any] = field(default_factory=dict)
+    role_hints: dict[str, RoleHint] = field(default_factory=dict)
+    role_defaults: RoleDefaults = field(default_factory=RoleDefaults)
     defaults: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -135,9 +145,8 @@ class SubagentConfig:
             "path": str(self.path),
             "loaded": self.loaded,
             "launchers": {name: launcher.to_dict() for name, launcher in self.launchers.items()},
-            "profiles": {name: profile.to_dict() for name, profile in self.profiles.items()},
-            "packs": {name: pack.to_dict() for name, pack in self.packs.items()},
-            "policyPresets": self.policy_presets,
+            "roleHints": {name: role_hint.to_dict() for name, role_hint in self.role_hints.items()},
+            "roleDefaults": self.role_defaults.to_dict(),
             "defaults": self.defaults,
         }
 
@@ -205,70 +214,77 @@ def _parse_launchers(raw: Any) -> dict[str, Launcher]:
     return launchers
 
 
-def _parse_profiles(raw: Any) -> dict[str, Profile]:
-    mapping = _ensure_mapping(raw or {}, field_name="profiles")
-    profiles: dict[str, Profile] = {}
+def _parse_role_defaults(raw: Any) -> RoleDefaults:
+    mapping = _ensure_mapping(raw or {}, field_name="roleDefaults")
+    prompt_language = mapping.get("promptLanguage", "en")
+    response_language = mapping.get("responseLanguage", "same_as_manager")
+    return RoleDefaults(
+        prompt_language=_ensure_string(prompt_language, field_name="roleDefaults.promptLanguage"),
+        response_language=_ensure_string(response_language, field_name="roleDefaults.responseLanguage"),
+    )
+
+
+def _parse_role_hints(raw: Any) -> dict[str, RoleHint]:
+    mapping = _ensure_mapping(raw or {}, field_name="roleHints")
+    role_hints: dict[str, RoleHint] = {}
     for name, payload in mapping.items():
-        entry = _ensure_mapping(payload, field_name=f"profiles.{name}")
-        prompt_language = entry.get("promptLanguage", "en")
-        response_language = entry.get("responseLanguage", "same_as_manager")
-        auto_handoff = entry.get("autoHandoff")
-        policy_preset = entry.get("policyPreset")
-        bootstrap = entry.get("bootstrap", "")
-        if not isinstance(prompt_language, str) or not isinstance(response_language, str):
+        entry = _ensure_mapping(payload, field_name=f"roleHints.{name}")
+        preferred_launcher = entry.get("preferredLauncher")
+        prompt_language = entry.get("promptLanguage")
+        response_language = entry.get("responseLanguage")
+        delegation_hint = entry.get("delegationHint")
+        recommended_skills_raw = entry.get("recommendedSkills")
+        if preferred_launcher is not None and not isinstance(preferred_launcher, str):
             raise SubagentError(
                 code="CONFIG_PARSE_ERROR",
-                message=f"`profiles.{name}` language fields must be strings",
-                details={"profile": name},
+                message=f"`roleHints.{name}.preferredLauncher` must be string or null",
+                details={"roleHint": name},
             )
-        if auto_handoff is not None and not isinstance(auto_handoff, str):
+        if prompt_language is not None and not isinstance(prompt_language, str):
             raise SubagentError(
                 code="CONFIG_PARSE_ERROR",
-                message=f"`profiles.{name}.autoHandoff` must be string or null",
-                details={"profile": name},
+                message=f"`roleHints.{name}.promptLanguage` must be string or null",
+                details={"roleHint": name},
             )
-        if policy_preset is not None and not isinstance(policy_preset, str):
+        if response_language is not None and not isinstance(response_language, str):
             raise SubagentError(
                 code="CONFIG_PARSE_ERROR",
-                message=f"`profiles.{name}.policyPreset` must be string or null",
-                details={"profile": name},
+                message=f"`roleHints.{name}.responseLanguage` must be string or null",
+                details={"roleHint": name},
             )
-        if not isinstance(bootstrap, str):
+        if delegation_hint is not None and not isinstance(delegation_hint, str):
             raise SubagentError(
                 code="CONFIG_PARSE_ERROR",
-                message=f"`profiles.{name}.bootstrap` must be a string",
-                details={"profile": name},
+                message=f"`roleHints.{name}.delegationHint` must be string or null",
+                details={"roleHint": name},
             )
-        profiles[name] = Profile(
+        recommended_skills = _ensure_string_list(
+            recommended_skills_raw,
+            field_name=f"roleHints.{name}.recommendedSkills",
+        )
+        normalized_recommended_skills: list[str] = []
+        for idx, skill_name in enumerate(recommended_skills):
+            normalized_name = skill_name.strip()
+            if not normalized_name:
+                raise SubagentError(
+                    code="CONFIG_PARSE_ERROR",
+                    message=f"`roleHints.{name}.recommendedSkills[{idx}]` must be non-empty",
+                    details={"roleHint": name, "index": idx},
+                )
+            normalized_recommended_skills.append(normalized_name)
+        normalized_delegation_hint: str | None = None
+        if isinstance(delegation_hint, str):
+            trimmed_hint = delegation_hint.strip()
+            normalized_delegation_hint = trimmed_hint if trimmed_hint else None
+        role_hints[name] = RoleHint(
             name=name,
+            preferred_launcher=preferred_launcher.strip() if isinstance(preferred_launcher, str) else None,
             prompt_language=prompt_language,
             response_language=response_language,
-            auto_handoff=auto_handoff,
-            policy_preset=policy_preset,
-            default_packs=_ensure_string_list(
-                entry.get("defaultPacks"),
-                field_name=f"profiles.{name}.defaultPacks",
-            ),
-            bootstrap=bootstrap,
+            delegation_hint=normalized_delegation_hint,
+            recommended_skills=normalized_recommended_skills,
         )
-    return profiles
-
-
-def _parse_packs(raw: Any) -> dict[str, Pack]:
-    mapping = _ensure_mapping(raw or {}, field_name="packs")
-    packs: dict[str, Pack] = {}
-    for name, payload in mapping.items():
-        entry = _ensure_mapping(payload, field_name=f"packs.{name}")
-        description = entry.get("description", "")
-        prompt = entry.get("prompt", "")
-        if not isinstance(description, str) or not isinstance(prompt, str):
-            raise SubagentError(
-                code="CONFIG_PARSE_ERROR",
-                message=f"`packs.{name}` fields must be strings",
-                details={"pack": name},
-            )
-        packs[name] = Pack(name=name, description=description, prompt=prompt)
-    return packs
+    return role_hints
 
 
 def load_config(config_path: Path | None = None) -> SubagentConfig:
@@ -276,18 +292,9 @@ def load_config(config_path: Path | None = None) -> SubagentConfig:
     if not resolved_path.exists():
         return SubagentConfig(path=resolved_path, loaded=False)
     raw = _load_raw_config(resolved_path)
-    policy_presets = raw.get("policyPresets", {})
     defaults = raw.get("defaults", {})
-    if policy_presets is None:
-        policy_presets = {}
     if defaults is None:
         defaults = {}
-    if not isinstance(policy_presets, dict):
-        raise SubagentError(
-            code="CONFIG_PARSE_ERROR",
-            message="`policyPresets` must be a mapping",
-            details={"field": "policyPresets"},
-        )
     if not isinstance(defaults, dict):
         raise SubagentError(
             code="CONFIG_PARSE_ERROR",
@@ -298,8 +305,7 @@ def load_config(config_path: Path | None = None) -> SubagentConfig:
         path=resolved_path,
         loaded=True,
         launchers=_parse_launchers(raw.get("launchers")),
-        profiles=_parse_profiles(raw.get("profiles")),
-        packs=_parse_packs(raw.get("packs")),
-        policy_presets=policy_presets,
+        role_hints=_parse_role_hints(raw.get("roleHints")),
+        role_defaults=_parse_role_defaults(raw.get("roleDefaults")),
         defaults=defaults,
     )

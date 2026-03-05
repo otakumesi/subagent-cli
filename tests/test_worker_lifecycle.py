@@ -17,22 +17,15 @@ launchers:
     command: codex-acp
     args: []
     env: {}
-profiles:
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
+roleHints:
   worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-packs:
-  repo-conventions:
-    description: Follow repo conventions
-    prompt: |
-      Keep changes small.
+    preferredLauncher: codex
 defaults:
   launcher: codex
-  profile: worker-default
+  role: worker-default
 """
 
 
@@ -86,8 +79,7 @@ class WorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(payload["type"], "worker.started")
         data = payload["data"]
         self.assertEqual(data["launcher"], "codex")
-        self.assertEqual(data["profile"], "worker-default")
-        self.assertEqual(data["packs"], ["repo-conventions"])
+        self.assertEqual(data["role"], "worker-default")
         self.assertEqual(data["state"], "idle")
 
     def test_worker_list_show_and_stop_flow(self) -> None:

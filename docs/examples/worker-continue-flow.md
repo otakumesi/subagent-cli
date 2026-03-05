@@ -1,13 +1,13 @@
 # Worker Continue Flow (v1)
 
 1. Create handoff from previous worker:
-`subagent worker handoff --worker w_123`
+`subagent worker handoff --worker-id w_123`
 
 2. Start a new worker from the handoff artifact:
-`subagent worker continue --from-worker w_123 --launcher codex --profile worker-default`
+`subagent worker continue --from-worker w_123 --launcher codex --role worker-default`
 
 3. Watch normalized events from the new worker:
-`subagent watch --worker w_456 --follow --ndjson`
+`subagent watch --worker-id w_456 --follow --ndjson`
 
 4. Continue by sending a new instruction:
-`subagent send --worker w_456 --text "Proceed with the minimal fix and add regression coverage."`
+`subagent send --worker-id w_456 --text "Proceed with the minimal fix and add regression coverage."`

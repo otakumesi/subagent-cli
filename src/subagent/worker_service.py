@@ -96,8 +96,14 @@ def resolve_worker_controller_id(
     return target_controller_id
 
 
-def _resolve_launcher(config: SubagentConfig, launcher: str | None) -> str:
+def _resolve_launcher(config: SubagentConfig, launcher: str | None, *, role: str) -> str:
     value = launcher
+    if value is None:
+        role_hint = config.role_hints.get(role)
+        if role_hint is not None and isinstance(role_hint.preferred_launcher, str):
+            hinted_launcher = role_hint.preferred_launcher.strip()
+            if hinted_launcher:
+                value = hinted_launcher
     if value is None:
         default_launcher = config.defaults.get("launcher")
         if isinstance(default_launcher, str) and default_launcher:
@@ -116,46 +122,15 @@ def _resolve_launcher(config: SubagentConfig, launcher: str | None) -> str:
     return value
 
 
-def _resolve_profile(config: SubagentConfig, profile: str | None) -> str:
-    value = profile
+def _resolve_role(config: SubagentConfig, role: str | None) -> str:
+    value = role
     if value is None:
-        default_profile = config.defaults.get("profile")
-        if isinstance(default_profile, str) and default_profile:
-            value = default_profile
+        default_role = config.defaults.get("role")
+        if isinstance(default_role, str) and default_role.strip():
+            value = default_role.strip()
     if value is None:
-        raise SubagentError(
-            code="PROFILE_NOT_FOUND",
-            message="Profile is required. Set --profile or defaults.profile in config.",
-        )
-    if value not in config.profiles:
-        raise SubagentError(
-            code="PROFILE_NOT_FOUND",
-            message=f"Profile not found: {value}",
-            details={"profile": value},
-        )
+        value = "default"
     return value
-
-
-def _resolve_packs(config: SubagentConfig, profile_name: str, packs: list[str]) -> list[str]:
-    resolved: list[str] = []
-    if packs:
-        resolved = packs
-    else:
-        profile = config.profiles[profile_name]
-        if profile.default_packs:
-            resolved = list(profile.default_packs)
-        else:
-            defaults_packs = config.defaults.get("packs")
-            if isinstance(defaults_packs, list):
-                resolved = [str(item) for item in defaults_packs]
-    for pack_name in resolved:
-        if pack_name not in config.packs:
-            raise SubagentError(
-                code="PACK_NOT_FOUND",
-                message=f"Pack not found: {pack_name}",
-                details={"pack": pack_name},
-            )
-    return resolved
 
 
 def start_worker(
@@ -166,8 +141,7 @@ def start_worker(
     worker_cwd: Path,
     controller_id: str | None,
     launcher: str | None,
-    profile: str | None,
-    packs: list[str],
+    role: str | None,
     label: str | None,
     debug_mode: bool = False,
 ) -> dict[str, Any]:
@@ -177,17 +151,15 @@ def start_worker(
         workspace=resolved_workspace,
         explicit_controller_id=controller_id,
     )
-    target_launcher = _resolve_launcher(config, launcher)
-    target_profile = _resolve_profile(config, profile)
-    target_packs = _resolve_packs(config, target_profile, packs)
+    target_role = _resolve_role(config, role)
+    target_launcher = _resolve_launcher(config, launcher, role=target_role)
     resolved_cwd = resolve_workspace_path(worker_cwd)
     resolved_label = label or "worker"
 
     worker = store.create_worker(
         controller_id=target_controller_id,
         launcher=target_launcher,
-        profile=target_profile,
-        packs=target_packs,
+        role=target_role,
         cwd=str(resolved_cwd),
         label=resolved_label,
     )
@@ -251,8 +223,7 @@ def start_worker(
         "controllerId": worker["controller_id"],
         "sessionId": worker["session_id"],
         "launcher": worker["launcher"],
-        "profile": worker["profile"],
-        "packs": worker["packs"],
+        "role": worker["role"],
         "cwd": worker["cwd"],
         "label": worker["label"],
         "state": worker["state"],
@@ -275,7 +246,7 @@ def list_workers(
             "controllerId": row["controller_id"],
             "label": row["label"],
             "launcher": row["launcher"],
-            "profile": row["profile"],
+            "role": row["role"],
             "state": row["state"],
             "cwd": row["cwd"],
             "sessionId": row["session_id"],
@@ -304,8 +275,7 @@ def show_worker(store: StateStore, worker_id: str) -> dict[str, Any]:
         "controllerId": worker["controller_id"],
         "label": worker["label"],
         "launcher": worker["launcher"],
-        "profile": worker["profile"],
-        "packs": worker["packs"],
+        "role": worker["role"],
         "cwd": worker["cwd"],
         "sessionId": worker["session_id"],
         "activeTurnId": worker.get("active_turn_id"),

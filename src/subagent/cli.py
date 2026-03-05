@@ -32,7 +32,6 @@ from .input_contract import (
     read_blocks,
     read_bool,
     read_string,
-    read_string_list,
     reject_duplicates,
 )
 from .launcher_service import probe_launcher
@@ -54,7 +53,7 @@ app = typer.Typer(
     help=(
         "subagent: protocol-agnostic worker orchestration CLI\n"
         "If you were instructed to use this tool as a manager agent, "
-        "start with: `subagent prompt render --target manager`\n"
+        "start with: `subagent prompt render`\n"
         "Tip: `subagent send` now waits by default; "
         "use `--no-wait` for fire-and-return behavior. "
         "Use `subagent wait`/`subagent watch` for advanced monitoring. "
@@ -63,16 +62,14 @@ app = typer.Typer(
     )
 )
 launcher_app = typer.Typer(help="Manage launcher registry from config")
-profile_app = typer.Typer(help="Manage profile registry from config")
-pack_app = typer.Typer(help="Manage pack registry from config")
+role_app = typer.Typer(help="Manage role hints from config")
 config_app = typer.Typer(help="Manage config files")
-prompt_app = typer.Typer(help="Render manager/worker prompts")
+prompt_app = typer.Typer(help="Render manager prompt")
 controller_app = typer.Typer(help="Manage controller ownership")
 worker_app = typer.Typer(help="Manage worker lifecycle")
 
 app.add_typer(launcher_app, name="launcher")
-app.add_typer(profile_app, name="profile")
-app.add_typer(pack_app, name="pack")
+app.add_typer(role_app, name="role")
 app.add_typer(config_app, name="config")
 app.add_typer(prompt_app, name="prompt")
 app.add_typer(controller_app, name="controller")
@@ -153,43 +150,36 @@ _DEFAULT_CONFIG_TEMPLATE = """launchers:
       - acp
     env: {}
 
-profiles:
-  worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    autoHandoff: turn_end
-    policyPreset: safe-default
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-      Use STATUS:, ASK:, BLOCKED:, and DONE: prefixes when helpful.
-      Keep messages concise and actionable.
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
 
-packs:
-  repo-conventions:
-    description: Follow repository coding conventions and keep diffs small.
-    prompt: |
-      Read existing conventions before editing.
-      Prefer minimal, explicit changes.
-
-  python-test-fix:
-    description: Fix flaky Python tests with minimal change scope.
-    prompt: |
-      Reproduce failing tests first.
-      Add regression coverage where practical.
-
-policyPresets:
-  safe-default:
-    filesystem: workspace-write
-    network: ask
-    dangerousCommands: deny
+roleHints:
+  developer:
+    preferredLauncher: codex
+    delegationHint: "State goal, constraints, done conditions, affected files, and test expectations."
+    # Optional: list skill names the agent should explicitly invoke for this role.
+    recommendedSkills: []
+  reviewer:
+    preferredLauncher: claude-code
+    delegationHint: "Review as a lead engineer; prioritize bugs, regressions, missing tests, and risk."
+    recommendedSkills: []
+  research_analyst:
+    preferredLauncher: gemini
+    delegationHint: "Gather primary sources first, then report with dates and source URLs."
+    recommendedSkills: []
+  ux_designer:
+    preferredLauncher: claude-code
+    delegationHint: "Provide user flows, alternatives, trade-offs, decision rationale, and validation metrics."
+    recommendedSkills: []
+  data_scientist:
+    preferredLauncher: codex
+    delegationHint: "Define hypothesis, required data, method, evaluation metrics, and reproducible steps."
+    recommendedSkills: []
 
 defaults:
   launcher: codex
-  profile: worker-default
-  packs:
-    - repo-conventions
+  role: developer
 """
 
 
@@ -514,109 +504,52 @@ def launcher_probe(
         typer.echo(f"resolvedPath: {payload['resolvedCommandPath']}")
 
 
-@profile_app.command("list")
-def profile_list(
+@role_app.command("list")
+def role_list(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
     config = _load_config_or_exit(config_path, json_output=json_output)
     items = [
-        {
-            "name": profile.name,
-            "promptLanguage": profile.prompt_language,
-            "responseLanguage": profile.response_language,
-        }
-        for profile in sorted(config.profiles.values(), key=lambda x: x.name)
+        role_hint.to_dict()
+        for role_hint in sorted(config.role_hints.values(), key=lambda x: x.name)
     ]
     _emit_simple_list(
-        title="profiles",
+        title="roles",
         items=items,
         json_output=json_output,
-        event_type="profile.listed",
+        event_type="role.listed",
         config=config,
     )
 
 
-@profile_app.command("show")
-def profile_show(
-    name: str = typer.Argument(..., help="Profile name"),
+@role_app.command("show")
+def role_show(
+    name: str = typer.Argument(..., help="Role hint name"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
     config = _load_config_or_exit(config_path, json_output=json_output)
-    profile = config.profiles.get(name)
-    if profile is None:
+    role_hint = config.role_hints.get(name)
+    if role_hint is None:
         emit_error_and_exit(
             SubagentError(
-                code="PROFILE_NOT_FOUND",
-                message=f"Profile not found: {name}",
+                code="ROLE_HINT_NOT_FOUND",
+                message=f"Role hint not found: {name}",
                 details={"name": name},
             ),
             json_output=json_output,
         )
-    _emit_simple_show(item=profile.to_dict(), item_type="profile", json_output=json_output)
-
-
-@pack_app.command("list")
-def pack_list(
-    json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
-    config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
-) -> None:
-    config = _load_config_or_exit(config_path, json_output=json_output)
-    items = [
-        {
-            "name": pack.name,
-            "description": pack.description,
-        }
-        for pack in sorted(config.packs.values(), key=lambda x: x.name)
-    ]
-    _emit_simple_list(
-        title="packs",
-        items=items,
-        json_output=json_output,
-        event_type="pack.listed",
-        config=config,
-    )
-
-
-@pack_app.command("show")
-def pack_show(
-    name: str = typer.Argument(..., help="Pack name"),
-    json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
-    config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
-) -> None:
-    config = _load_config_or_exit(config_path, json_output=json_output)
-    pack = config.packs.get(name)
-    if pack is None:
-        emit_error_and_exit(
-            SubagentError(
-                code="PACK_NOT_FOUND",
-                message=f"Pack not found: {name}",
-                details={"name": name},
-            ),
-            json_output=json_output,
-        )
-    _emit_simple_show(item=pack.to_dict(), item_type="pack", json_output=json_output)
+    _emit_simple_show(item=role_hint.to_dict(), item_type="role", json_output=json_output)
 
 
 @prompt_app.command("render")
 def prompt_render(
-    target: str = typer.Option(..., "--target", help="Prompt target: manager|worker"),
-    profile: str | None = typer.Option(None, "--profile", help="Profile name for worker target"),
-    packs: list[str] = typer.Option([], "--pack", help="Pack names (repeatable)"),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON envelope."),
     config_path: Path | None = typer.Option(None, "--config", help="Override config path."),
 ) -> None:
     config = _load_config_or_exit(config_path, json_output=json_output)
-    try:
-        payload = render_prompt(
-            config,
-            target=target,
-            profile_name=profile,
-            pack_names=packs,
-        )
-    except SubagentError as error:
-        emit_error_and_exit(error, json_output=json_output)
+    payload = render_prompt(config)
     if json_output:
         emit_json(ok_envelope("prompt.rendered", payload))
     else:
@@ -1465,8 +1398,7 @@ def cancel(
 def worker_start(
     ctx: typer.Context,
     launcher: str | None = typer.Option(None, "--launcher", help="Launcher name"),
-    profile: str | None = typer.Option(None, "--profile", help="Profile name"),
-    packs: list[str] = typer.Option([], "--pack", help="Pack names (repeatable)"),
+    role: str | None = typer.Option(None, "--role", help="Role hint name (or free-form role name)"),
     cwd: Path = typer.Option(Path("."), "--cwd", help="Worker working directory"),
     label: str | None = typer.Option(None, "--label", help="Worker label"),
     controller_id: str | None = typer.Option(None, "--controller-id", help="Controller ID override"),
@@ -1489,8 +1421,7 @@ def worker_start(
             input_payload,
             flag_values={
                 "launcher": launcher,
-                "profile": profile,
-                "packs": packs,
+                "role": role,
                 "cwd": str(cwd),
                 "label": label,
                 "controller_id": controller_id,
@@ -1498,8 +1429,7 @@ def worker_start(
             },
             value_is_default={
                 "launcher": _is_param_default(ctx, "launcher"),
-                "profile": _is_param_default(ctx, "profile"),
-                "packs": _is_param_default(ctx, "packs"),
+                "role": _is_param_default(ctx, "role"),
                 "cwd": _is_param_default(ctx, "cwd"),
                 "label": _is_param_default(ctx, "label"),
                 "controller_id": _is_param_default(ctx, "controller_id"),
@@ -1507,8 +1437,7 @@ def worker_start(
             },
             mapping={
                 "launcher": "launcher",
-                "profile": "profile",
-                "packs": "packs",
+                "role": "role",
                 "cwd": "cwd",
                 "label": "label",
                 "controllerId": "controller_id",
@@ -1517,10 +1446,7 @@ def worker_start(
         )
         if input_payload is not None:
             launcher = read_string(input_payload, "launcher") or launcher
-            profile = read_string(input_payload, "profile") or profile
-            payload_packs = read_string_list(input_payload, "packs")
-            if payload_packs is not None:
-                packs = payload_packs
+            role = read_string(input_payload, "role") or role
             payload_cwd = read_string(input_payload, "cwd")
             if payload_cwd is not None:
                 cwd = Path(payload_cwd)
@@ -1543,8 +1469,7 @@ def worker_start(
             worker_cwd=resolve_workspace_path(cwd),
             controller_id=controller_id,
             launcher=launcher,
-            profile=profile,
-            packs=packs,
+            role=role,
             label=label,
             debug_mode=debug_mode,
         )
@@ -1719,8 +1644,7 @@ def worker_continue(
     from_worker: str | None = typer.Option(None, "--from-worker", help="Source worker ID"),
     from_handoff: Path | None = typer.Option(None, "--from-handoff", help="Path to handoff.md"),
     launcher: str | None = typer.Option(None, "--launcher", help="Launcher override"),
-    profile: str | None = typer.Option(None, "--profile", help="Profile override"),
-    packs: list[str] = typer.Option([], "--pack", help="Pack override (repeatable)"),
+    role: str | None = typer.Option(None, "--role", help="Role override"),
     cwd: Path | None = typer.Option(
         None,
         "--cwd",
@@ -1757,8 +1681,7 @@ def worker_continue(
             from_worker=from_worker,
             from_handoff=from_handoff,
             launcher=launcher,
-            profile=profile,
-            packs=packs,
+            role=role,
             cwd=cwd,
             label=label,
             controller_id=controller_id,

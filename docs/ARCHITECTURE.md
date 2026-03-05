@@ -5,13 +5,13 @@
 - Local control plane: `subagentd` process for bootstrap/status, heartbeat, worker runtime health checks, and auto-restart attempts.
 - Runtime state: sqlite-backed `StateStore` for controllers, controller instances, workers, event journal, approval requests, and handoff snapshots.
 - Runtime adapter: per-worker ACP runtime process (`subagent.worker_runtime`) with unix-socket IPC (`runtime_service`).
-- Config registry: loader for `launchers` / `profiles` / `packs` / `defaults` from config.
+- Config registry: loader for `launchers` / `roleHints` / `roleDefaults` / `defaults` from config.
 
 ## Current v1 Scope (Implemented)
 - `config`: `init` (user/project config template generation)
-- `launcher/profile/pack`: `list`, `show`
+- `launcher/role`: `list`, `show`
 - `launcher`: `probe`
-- `prompt`: `render` (manager/worker)
+- `prompt`: `render` (manager)
 - `controller`: `init`, `attach`, `status`, `recover`, `release`
 - `worker`: `start`, `list`, `show`, `inspect`, `stop`, `handoff`, `continue`
 - turn operations: `send`, `watch`, `wait`, `approve`, `cancel`

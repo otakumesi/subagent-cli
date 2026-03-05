@@ -17,22 +17,15 @@ launchers:
     command: codex-acp
     args: []
     env: {}
-profiles:
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
+roleHints:
   worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-packs:
-  repo-conventions:
-    description: Follow repo conventions
-    prompt: |
-      Keep changes small.
+    preferredLauncher: codex
 defaults:
   launcher: codex
-  profile: worker-default
+  role: worker-default
 """
 
 

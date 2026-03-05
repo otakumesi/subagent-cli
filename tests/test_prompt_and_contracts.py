@@ -17,22 +17,19 @@ launchers:
     command: sh
     args: []
     env: {}
-profiles:
+roleDefaults:
+  promptLanguage: en
+  responseLanguage: same_as_manager
+roleHints:
   worker-default:
-    promptLanguage: en
-    responseLanguage: same_as_manager
-    defaultPacks:
-      - repo-conventions
-    bootstrap: |
-      You are a worker subagent.
-packs:
-  repo-conventions:
-    description: Follow repo conventions
-    prompt: |
-      Keep changes small.
+    preferredLauncher: codex
+    delegationHint: "Provide goal, constraints, and done conditions."
+    recommendedSkills:
+      - skill-creator
+      - skill-installer
 defaults:
   launcher: codex
-  profile: worker-default
+  role: worker-default
 """
 
 
@@ -84,13 +81,13 @@ class PromptAndContractTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         return str(payload["data"]["workerId"])
 
-    def test_prompt_render_manager_and_worker(self) -> None:
-        manager = self.invoke(["prompt", "render", "--target", "manager", "--json"])
-        self.assertEqual(manager.exit_code, 0)
-        manager_payload = json.loads(manager.stdout)
-        self.assertEqual(manager_payload["type"], "prompt.rendered")
-        self.assertEqual(manager_payload["data"]["target"], "manager")
-        manager_prompt = str(manager_payload["data"]["prompt"])
+    def test_prompt_render_manager(self) -> None:
+        result = self.invoke(["prompt", "render", "--json"])
+        self.assertEqual(result.exit_code, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["type"], "prompt.rendered")
+        self.assertEqual(payload["data"]["target"], "manager")
+        manager_prompt = str(payload["data"]["prompt"])
         self.assertIn("Read this quick workflow first", manager_prompt)
         self.assertIn("subagent controller init", manager_prompt)
         self.assertIn("subagent send --worker-id", manager_prompt)
@@ -99,12 +96,9 @@ class PromptAndContractTests(unittest.TestCase):
         self.assertIn("--text-file", manager_prompt)
         self.assertIn("--text-stdin", manager_prompt)
         self.assertIn("--include-history", manager_prompt)
-
-        worker = self.invoke(["prompt", "render", "--target", "worker", "--json"])
-        self.assertEqual(worker.exit_code, 0)
-        worker_payload = json.loads(worker.stdout)
-        self.assertEqual(worker_payload["data"]["target"], "worker")
-        self.assertIn("repo-conventions", worker_payload["data"]["packs"])
+        self.assertIn("Role hints:", manager_prompt)
+        self.assertIn("delegationHint: Provide goal, constraints, and done conditions.", manager_prompt)
+        self.assertIn("recommendedSkills: `skill-creator`, `skill-installer`", manager_prompt)
 
     def test_launcher_probe_and_worker_inspect(self) -> None:
         probe = self.invoke(["launcher", "probe", "codex", "--json"])
@@ -255,7 +249,7 @@ class PromptAndContractTests(unittest.TestCase):
             json.dumps(
                 {
                     "launcher": "codex",
-                    "profile": "worker-default",
+                    "role": "worker-default",
                     "cwd": str(self.workspace),
                     "label": "from-input",
                     "debugMode": True,

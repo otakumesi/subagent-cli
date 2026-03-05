@@ -35,16 +35,12 @@ class AcpBackendIntegrationTests(unittest.TestCase):
                     "env": {},
                 }
             },
-            "profiles": {
-                "worker-default": {
-                    "promptLanguage": "en",
-                    "responseLanguage": "same_as_manager",
-                    "defaultPacks": [],
-                    "bootstrap": "You are a worker subagent.",
-                }
+            "roleDefaults": {
+                "promptLanguage": "en",
+                "responseLanguage": "same_as_manager",
             },
-            "packs": {},
-            "defaults": {"launcher": "fake-acp", "profile": "worker-default"},
+            "roleHints": {"worker-default": {"preferredLauncher": "fake-acp"}},
+            "defaults": {"launcher": "fake-acp", "role": "worker-default"},
         }
         self.config_path.write_text(json.dumps(config), encoding="utf-8")
         self.runner = CliRunner()
@@ -352,16 +348,12 @@ class AcpBackendIntegrationTests(unittest.TestCase):
                     "env": {},
                 }
             },
-            "profiles": {
-                "worker-default": {
-                    "promptLanguage": "en",
-                    "responseLanguage": "same_as_manager",
-                    "defaultPacks": [],
-                    "bootstrap": "You are a worker subagent.",
-                }
+            "roleDefaults": {
+                "promptLanguage": "en",
+                "responseLanguage": "same_as_manager",
             },
-            "packs": {},
-            "defaults": {"launcher": "fake-acp", "profile": "worker-default"},
+            "roleHints": {"worker-default": {"preferredLauncher": "fake-acp"}},
+            "defaults": {"launcher": "fake-acp", "role": "worker-default"},
         }
         broken_config_path.write_text(json.dumps(broken), encoding="utf-8")
         env = dict(self.base_env)

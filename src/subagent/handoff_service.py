@@ -167,8 +167,7 @@ def create_handoff(
         "workerId": worker["worker_id"],
         "controllerId": worker["controller_id"],
         "launcher": worker["launcher"],
-        "profile": worker["profile"],
-        "packs": worker["packs"],
+        "role": worker["role"],
         "cwd": worker["cwd"],
         "state": "handoff_ready",
         "sourceTurnId": source_turn_id,
@@ -269,8 +268,7 @@ def continue_worker(
     from_worker: str | None,
     from_handoff: Path | None,
     launcher: str | None,
-    profile: str | None,
-    packs: list[str],
+    role: str | None,
     cwd: Path | None,
     label: str | None,
     controller_id: str | None,
@@ -291,20 +289,14 @@ def continue_worker(
     source_handoff_path = Path(source["handoffPath"])
     source_worker_id = source.get("sourceWorkerId")
     checkpoint_launcher = checkpoint.get("launcher")
-    checkpoint_profile = checkpoint.get("profile")
-    checkpoint_packs = checkpoint.get("packs")
+    checkpoint_role = checkpoint.get("role")
+    if checkpoint_role is None:
+        checkpoint_role = checkpoint.get("profile")
     checkpoint_cwd = checkpoint.get("cwd")
     checkpoint_controller = checkpoint.get("controllerId")
 
     target_launcher = launcher or (str(checkpoint_launcher) if isinstance(checkpoint_launcher, str) else None)
-    target_profile = profile or (str(checkpoint_profile) if isinstance(checkpoint_profile, str) else None)
-    target_packs: list[str]
-    if packs:
-        target_packs = packs
-    elif isinstance(checkpoint_packs, list):
-        target_packs = [str(item) for item in checkpoint_packs]
-    else:
-        target_packs = []
+    target_role = role or (str(checkpoint_role) if isinstance(checkpoint_role, str) else None)
 
     target_cwd = resolve_workspace_path(cwd if cwd is not None else Path(str(checkpoint_cwd)) if isinstance(checkpoint_cwd, str) else Path.cwd())
     target_controller = controller_id or (
@@ -321,8 +313,7 @@ def continue_worker(
         worker_cwd=target_cwd,
         controller_id=target_controller,
         launcher=target_launcher,
-        profile=target_profile,
-        packs=target_packs,
+        role=target_role,
         label=target_label,
         debug_mode=debug_mode,
     )

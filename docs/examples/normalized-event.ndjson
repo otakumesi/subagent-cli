@@ -1,4 +1,4 @@
-{"schemaVersion":"v1","eventId":"ev_01","ts":"2026-03-01T22:00:00Z","workerId":"w_123","type":"worker.started","data":{"launcher":"codex","profile":"worker-default","state":"idle"}}
+{"schemaVersion":"v1","eventId":"ev_01","ts":"2026-03-01T22:00:00Z","workerId":"w_123","type":"worker.started","data":{"launcher":"codex","role":"worker-default","state":"idle"}}
 {"schemaVersion":"v1","eventId":"ev_02","ts":"2026-03-01T22:00:05Z","workerId":"w_123","type":"turn.started","data":{"turnId":"turn_01"}}
 {"schemaVersion":"v1","eventId":"ev_03","ts":"2026-03-01T22:00:12Z","workerId":"w_123","type":"progress.message","data":{"role":"assistant","text":"STATUS: Investigating flaky payments retry test."}}
 {"schemaVersion":"v1","eventId":"ev_04","ts":"2026-03-01T22:00:20Z","workerId":"w_123","type":"turn.completed","data":{"turnId":"turn_01","state":"idle"}}

@@ -58,17 +58,15 @@ class DaemonTests(unittest.TestCase):
                 "    command: nonexistent-codex-acp\n"
                 "    args: []\n"
                 "    env: {}\n"
-                "profiles:\n"
+                "roleDefaults:\n"
+                "  promptLanguage: en\n"
+                "  responseLanguage: same_as_manager\n"
+                "roleHints:\n"
                 "  worker-default:\n"
-                "    promptLanguage: en\n"
-                "    responseLanguage: same_as_manager\n"
-                "    defaultPacks: []\n"
-                "    bootstrap: |\n"
-                "      You are a worker subagent.\n"
-                "packs: {}\n"
+                "    preferredLauncher: codex\n"
                 "defaults:\n"
                 "  launcher: codex\n"
-                "  profile: worker-default\n"
+                "  role: worker-default\n"
             ),
             encoding="utf-8",
         )
@@ -80,8 +78,7 @@ class DaemonTests(unittest.TestCase):
         worker = store.create_worker(
             controller_id=controller_id,
             launcher="codex",
-            profile="worker-default",
-            packs=[],
+            role="worker-default",
             cwd=str(workspace),
             label="w",
         )
