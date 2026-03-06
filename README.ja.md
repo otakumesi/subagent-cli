@@ -59,6 +59,8 @@ pip install dist/subagent_cli-*.whl
 ```
 
 ## ターミナルデモ 🎬
+Gemini が manager、Codex が worker として動く実際のワークフローです。
+
 [![asciicast](https://asciinema.org/a/813713.svg)](https://asciinema.org/a/813713)
 
 ## クイックスタート ⚡

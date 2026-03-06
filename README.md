@@ -59,6 +59,8 @@ pip install dist/subagent_cli-*.whl
 ```
 
 ## Terminal Demo 🎬
+A real `Gemini -> Codex` workflow, with Gemini as manager and Codex as worker.
+
 [![asciicast](https://asciinema.org/a/813713.svg)](https://asciinema.org/a/813713)
 
 ## Quick Start ⚡
